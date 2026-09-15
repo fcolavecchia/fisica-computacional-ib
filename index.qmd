@@ -1,8 +1,6 @@
 ---
-title: "Física Computacional"
-subtitle: "Instituto Balseiro · 2026"
+pagetitle: "Física Computacional · Instituto Balseiro 2026"
 toc: false
-title-block-banner: false
 page-layout: article
 ---
 

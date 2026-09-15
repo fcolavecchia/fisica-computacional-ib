@@ -2,7 +2,7 @@
 
 Material público de la materia.
 
-- **Sitio:** https://fcolavecchia.github.io/fisica-computacional-ib/
+- **Sitio:** <https://flavio.colavecchia.net/fisica-computacional-ib/>
 - **Rama de la cursada:** `2026`
 
 ## Ver el sitio localmente
