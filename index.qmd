@@ -7,45 +7,7 @@ page-layout: article
 ::: {.hero}
 # Física Computacional
 
-Física computacional por construcción, auditoría y juego.
-:::
-
-## Ciclos
-
-::: {.ciclos}
-
-::: {.ciclo}
-[Ciclo 0]{.num}
-
-[Arranque]{.tema}
-
-[Pelota que pica]{.juego}
-:::
-
-::: {.ciclo}
-[Ciclo 1]{.num}
-
-[Integrar en el tiempo]{.tema}
-
-[Lunar lander]{.juego}
-:::
-
-::: {.ciclo}
-[Ciclo 2]{.num}
-
-[Resolver en una grilla]{.tema}
-
-[Sonar / batalla acústica]{.juego}
-:::
-
-::: {.ciclo}
-[Ciclo 3]{.num}
-
-[Muestrear azar]{.tema}
-
-[Incendio forestal]{.juego}
-:::
-
+Instituto Balseiro · 2026
 :::
 
 ## Material

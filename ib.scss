@@ -93,38 +93,3 @@ div.sourceCode, pre {
     opacity: 0.92;
   }
 }
-
-.ciclos {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 1rem;
-  margin: 1rem 0 2rem;
-}
-
-.ciclo {
-  padding: 1.1rem 1.25rem;
-  border: 1px solid #e3e5e8;
-  border-top: 4px solid $ib-rojo;
-  border-radius: 10px;
-  background: #ffffff;
-
-  .num {
-    font-family: $headings-font-family;
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: $ib-rojo;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
-  .tema {
-    margin: 0.2rem 0 0.35rem;
-    font-family: $headings-font-family;
-    font-size: 1.1rem;
-    font-weight: 700;
-  }
-
-  .juego {
-    color: #5b616b;
-  }
-}
