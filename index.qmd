@@ -1,5 +1,5 @@
 ---
-pagetitle: "Física Computacional · Instituto Balseiro 2026"
+pagetitle: "Inicio"
 toc: false
 page-layout: article
 ---
