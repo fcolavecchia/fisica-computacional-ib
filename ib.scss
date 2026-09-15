@@ -1,0 +1,130 @@
+/*-- scss:defaults --*/
+// Paleta y tipografías tomadas de https://www.ib.edu.ar/
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap");
+
+$ib-rojo: #bf0418;
+$ib-rojo-vivo: #dd0019;
+$ib-tinta: #1f2328;
+$ib-gris: #f4f5f7;
+
+$primary: $ib-rojo;
+$body-color: $ib-tinta;
+$link-color: $ib-rojo;
+$link-hover-color: $ib-rojo-vivo;
+
+$font-family-sans-serif: "Source Sans 3", "Source Sans Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$headings-font-family: "Poppins", $font-family-sans-serif;
+$headings-font-weight: 700;
+$font-size-root: 17px;
+
+$navbar-bg: #ffffff;
+$navbar-fg: $ib-tinta;
+$navbar-hl: $ib-rojo;
+
+$sidebar-bg: #ffffff;
+$sidebar-fg: #4a4f57;
+$sidebar-hl: $ib-rojo;
+
+$footer-bg: $ib-tinta;
+$footer-fg: #d0d4da;
+
+$code-color: #a3031a;
+$code-block-bg: $ib-gris;
+$callout-color-note: #2ea3f2;
+
+/*-- scss:rules --*/
+.navbar {
+  border-top: 4px solid $ib-rojo;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+}
+
+.navbar-title {
+  font-family: $headings-font-family;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+h1, .title {
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  padding-bottom: 0.3rem;
+  border-bottom: 2px solid $ib-gris;
+}
+
+.sidebar-item-text {
+  font-size: 0.95rem;
+}
+
+.sidebar-link.active .menu-text,
+.sidebar-item-section > .sidebar-item-container .text-start {
+  font-weight: 600;
+}
+
+.nav-footer {
+  font-size: 0.9rem;
+  a { color: #ffffff; }
+}
+
+div.sourceCode, pre {
+  border-radius: 8px;
+  border: none;
+}
+
+// Portada
+.hero {
+  margin: 1.5rem 0 2.5rem;
+  padding: 2.25rem 2rem;
+  border-radius: 14px;
+  color: #ffffff;
+  background: linear-gradient(120deg, $ib-rojo 0%, #7d0210 100%);
+
+  h1 {
+    margin: 0 0 0.5rem;
+    color: #ffffff;
+    border: none;
+    font-size: clamp(2rem, 5vw, 3rem);
+  }
+
+  p {
+    margin: 0;
+    font-size: 1.15rem;
+    opacity: 0.92;
+  }
+}
+
+.ciclos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 2rem;
+}
+
+.ciclo {
+  padding: 1.1rem 1.25rem;
+  border: 1px solid #e3e5e8;
+  border-top: 4px solid $ib-rojo;
+  border-radius: 10px;
+  background: #ffffff;
+
+  .num {
+    font-family: $headings-font-family;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: $ib-rojo;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .tema {
+    margin: 0.2rem 0 0.35rem;
+    font-family: $headings-font-family;
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .juego {
+    color: #5b616b;
+  }
+}

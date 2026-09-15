@@ -1,0 +1,54 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - "**/*.qmd"
+    - "**/*.md"
+    - "**/*.ipynb"
+    - "!README.md"
+
+lang: es
+
+website:
+  title: "Física Computacional"
+  site-url: https://fcolavecchia.github.io/fisica-computacional-ib/
+  repo-url: https://github.com/fcolavecchia/fisica-computacional-ib
+  repo-branch: "2026"
+  repo-actions: [source, issue]
+  page-navigation: true
+  search: true
+  navbar:
+    left:
+      - href: index.qmd
+        text: Inicio
+    right:
+      - icon: github
+        href: https://github.com/fcolavecchia/fisica-computacional-ib
+        aria-label: Repositorio en GitHub
+  # El menú lateral se arma solo con lo que haya en el repo:
+  # lo que publicar.sh copia aparece sin tocar este archivo.
+  sidebar:
+    style: docked
+    collapse-level: 1
+    contents: auto
+  page-footer:
+    left: "Física Computacional · Instituto Balseiro · 2026"
+    right:
+      - icon: github
+        href: https://github.com/fcolavecchia/fisica-computacional-ib
+
+format:
+  html:
+    theme:
+      - cosmo
+      - ib.scss
+    toc: true
+    toc-title: "En esta página"
+    code-copy: true
+    code-overflow: wrap
+    highlight-style: github
+    anchor-sections: true
+
+# Los notebooks se muestran con los outputs guardados; nunca se ejecutan.
+execute:
+  enabled: false
