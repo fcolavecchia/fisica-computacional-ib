@@ -11,7 +11,7 @@ lang: es
 
 website:
   title: "Física Computacional"
-  site-url: https://flavio.colavecchia.net/fisica-computacional-ib/
+  site-url: https://cursos.colavecchia.net/fisica-computacional/
   repo-url: https://github.com/fcolavecchia/fisica-computacional-ib
   repo-branch: "2026"
   repo-actions: [source, issue]
