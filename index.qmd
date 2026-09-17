@@ -10,6 +10,11 @@ page-layout: article
 Instituto Balseiro · 2026
 :::
 
+## La materia
+
+Propósito, cómo se trabaja con IA, qué se entrega, cómo se evalúa y qué
+instalar antes de la primera clase: [empezá acá](contenidos/index.md).
+
 ## Material
 
 El material se publica a medida que avanza la cursada. Usá el menú lateral para
