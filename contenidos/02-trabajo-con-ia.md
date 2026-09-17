@@ -2,8 +2,6 @@
 title: "Trabajo con IA"
 ---
 
-# Trabajo con IA
-
 En esta materia la IA no es una excepción tolerada ni un tema aparte. Las
 actividades, las entregas y la evaluación están diseñadas **suponiendo que la
 IA está disponible**. Por eso las consignas piden cosas que una respuesta
@@ -79,4 +77,4 @@ Una entrada honesta que dice "no sirvió" vale tanto como una que dice "funcion�
 
 La defensa individual se hace **con IA disponible**. Se introduce una
 modificación no anticipada y se evalúa cómo predicen, delegan, prueban e
-interpretan en tiempo real. Ver [Evaluación](evaluacion.md).
+interpretan en tiempo real. Ver [Evaluación](04-evaluacion.md).

@@ -2,8 +2,6 @@
 title: "Paquete de afirmación"
 ---
 
-# Paquete de afirmación
-
 Lo que se entrega en cada trabajo práctico no es un notebook terminado. Es una
 **afirmación computacional auditable**: una conclusión acotada, la evidencia
 que la sostiene y todo lo necesario para que otra persona la regenere y la
@@ -101,7 +99,7 @@ alternativas que siguen siendo compatibles** con los datos.
 
 ## `ai-use.md`
 
-Formato y reglas en [Trabajo con IA](trabajo-con-ia.md).
+Formato y reglas en [Trabajo con IA](02-trabajo-con-ia.md).
 
 ## Entrega
 

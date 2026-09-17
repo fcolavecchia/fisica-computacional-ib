@@ -2,8 +2,6 @@
 title: "Evaluación"
 ---
 
-# Evaluación
-
 La evaluación combina **productos grupales** y **comprensión individual**.
 Premia la precisión de la pregunta, la calidad de los controles, la honestidad
 sobre las incertidumbres y la capacidad de encontrar y corregir fallas.
@@ -115,7 +113,7 @@ en la medida en que afecta la claridad, la corrección y la reproducibilidad.
 Quién presenta se sortea en el momento y **la nota es del grupo**. Se evalúa que
 cualquiera de sus integrantes pueda explicar y defender la afirmación entregada:
 la evidencia que la sostiene, sus límites y cómo se detectaron las fallas.
-Detalle en [Grupos y presentaciones](grupos-y-revision.md).
+Detalle en [Grupos y presentaciones](05-grupos-y-revision.md).
 
 ## Defensa individual
 

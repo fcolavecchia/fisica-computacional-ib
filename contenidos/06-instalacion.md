@@ -2,8 +2,6 @@
 title: "Instalación"
 ---
 
-# Instalación
-
 Todo lo obligatorio corre en una laptop, sin GPU, con Windows, macOS o Linux.
 Hacen falta tres cosas: una terminal, `uv` y `git`.
 
