@@ -29,8 +29,10 @@ cd fiscom-2026-00-euler
 uv sync
 ```
 
-No clonen directamente el repositorio de la cátedra: no podrían subir allí sus
-cambios y compartirían el mismo `origin` con el resto del curso.
+> No clonen directamente el repositorio de la cátedra: no podrían subir allí sus cambios y compartirían el mismo `origin` con el resto del curso.
+
+> Pueden consultar el README.md del repositorio para ver cómo instalar
+> `uv`, cómo preparar el repo y cómo correr los tests.
 
 :::
 
