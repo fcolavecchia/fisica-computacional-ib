@@ -25,12 +25,22 @@ website:
       - icon: github
         href: https://github.com/fcolavecchia/fisica-computacional-ib
         aria-label: Repositorio en GitHub
-  # El menú lateral se arma solo con lo que haya en el repo:
-  # lo que publicar.sh copia aparece sin tocar este archivo.
   sidebar:
     style: docked
     collapse-level: 1
-    contents: auto
+    # Secciones fijas; cada una se llena sola con lo que publicar.sh copia
+    # en su carpeta (orden alfabético por nombre de archivo).
+    contents:
+      - section: "La materia"
+        href: contenidos/index.md
+        contents: "contenidos/la-materia/*"
+      - section: "Clases"
+        contents: "contenidos/clases/*"
+      - section: "Notebooks"
+        contents: "contenidos/notebooks/*"
+      - section: "Trabajos prácticos"
+        href: contenidos/TPs/index.md
+        contents: "contenidos/TPs/*/index.md"
   page-footer:
     left: "Física Computacional · Instituto Balseiro · 2026"
     right:

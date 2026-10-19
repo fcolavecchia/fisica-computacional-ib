@@ -3,7 +3,7 @@ title: "Trabajos prácticos"
 ---
 
 Cada trabajo práctico parte de una pregunta física y termina en un
-[paquete de afirmación](../contenidos/03-entrega-tps.md): código, tests,
+[paquete de afirmación](../la-materia/03-entrega-tps.md): código, tests,
 resultados regenerables y una conclusión que distingue evidencia de
 limitaciones.
 

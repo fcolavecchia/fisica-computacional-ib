@@ -155,10 +155,9 @@ plt.legend()
 plt.show()
 ```
 
-Al dividir $h$ por dos, el cociente entre errores sucesivos es
-`{python} f"{errores[0] / errores[1]:.2f}"` al pasar de $h=0.5$ a $h=0.25$, y
-`{python} f"{errores[-2] / errores[-1]:.3f}"` para los pasos más chicos
-($h\approx5\times10^{-4}$). La pendiente en escala log-log es $\approx 1$. Para pasos grandes el término $\mathcal O(\Delta t^2)$
+En la tabla impresa, el cociente entre errores sucesivos es algo mayor que 2
+para los pasos grandes y se acerca a 2 a medida que $h$ disminuye. La pendiente
+en escala log-log es $\approx 1$. Para pasos grandes el término $\mathcal O(\Delta t^2)$
 todavía pesa: la predicción vale en el **régimen asintótico**, cuando $h$ es
 suficientemente chico.
 
@@ -315,8 +314,8 @@ plt.legend()
 plt.show()
 ```
 
-El cociente tiende a 2 y la pendiente del ajuste log-log es
-`{python} f"{orden:.3f}"`. La evidencia es **compatible con orden uno**.
+El cociente tiende a 2 y la pendiente del ajuste log-log, impresa al final de
+la tabla, es muy cercana a 1. La evidencia es **compatible con orden uno**.
 
 **Para pensar:** no alcanza con superponer curvas y ver que "se parecen". La
 afirmación cuantitativa se apoya en el **cociente** de errores y en la
@@ -348,7 +347,7 @@ punteada de la figura.
 
 ### Puente con el TP 00
 
-En el [TP 00](../../TPs/00-euler/index.md) aplican lo mismo al tiro oblicuo:
+En el [TP 00](../TPs/00-euler/index.md) aplican lo mismo al tiro oblicuo:
 
 1. escribir $\vec F=m\vec a$ como cuatro ecuaciones de primer orden;
 2. completar un paso de Euler para el estado $(x,y,v_x,v_y)$;
