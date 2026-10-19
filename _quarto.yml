@@ -60,6 +60,13 @@ format:
     code-overflow: wrap
     highlight-style: github
     anchor-sections: true
+    # Los enlaces locales a .ipynb descargan el archivo en lugar de mostrar el JSON.
+    include-after-body:
+      - text: |
+          <script>
+          document.querySelectorAll('a[href$=".ipynb"]:not([href^="http"])')
+            .forEach(a => a.setAttribute("download", ""));
+          </script>
 
 # Los notebooks se muestran con los outputs guardados; nunca se ejecutan.
 execute:
