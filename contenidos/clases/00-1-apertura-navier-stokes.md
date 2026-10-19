@@ -148,8 +148,6 @@ Esta conexión permite anticipar algo del curso: el laplaciano se puede aproxima
 
 ### 1.5. ¿Qué aceleración corresponde poner en Newton?
 
-Esta parte merece hacerse lentamente, porque suele ser la más confusa.
-
 **La velocidad $\vec v(\vec x,t)$ no es un campo externo que «obliga» al fluido a moverse.** Es la descripción del movimiento del propio fluido, asignando una velocidad a cada posición e instante.
 
 Hay dos maneras de describir _el mismo_ movimiento:
@@ -322,7 +320,7 @@ $$
 
 Así se ve por qué $Re$ aparece como parámetro natural del problema, una vez fijados la geometría y los datos adimensionales.
 
-**Conexión con FisCom:** antes de programar conviene saber qué parámetros controlan el problema, qué escalas habrá que resolver y cómo comparar simulaciones distintas.
+> Antes de programar conviene saber qué parámetros controlan el problema, qué escalas habrá que resolver y cómo comparar simulaciones distintas.
 
 > **Pregunta a los estudiantes:** «¿Qué esperarían si duplicamos la velocidad de entrada manteniendo el mismo fluido y la misma geometría?».
 
@@ -377,9 +375,9 @@ En el ejemplo del cilindro se observa cómo el flujo se desvía alrededor del ob
 
 **¿Qué resolvió exactamente la computadora?** No manipuló una función continua exacta. Trabajó con una **aproximación numérica**, con una discretización espacial y temporal, condiciones iniciales y de contorno, y un método para actualizar los valores. El recurso usa una formulación numérica particular para aproximar el problema incompresible; no es una prueba matemática de existencia o regularidad.
 
-##### Conexión inmediata con el curso
+##### ¿Qué tiene que ver esto con FisCom?
 
-La pregunta deja servidos varios temas de FisCom:
+La pregunta deja servidos varios temas del curso:
 
 - Cómo aproximar derivadas espaciales (por ejemplo, el laplaciano).
 - Cómo avanzar una solución en el tiempo.
