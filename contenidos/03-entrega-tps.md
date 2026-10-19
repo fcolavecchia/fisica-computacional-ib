@@ -23,6 +23,9 @@ ai-use.md          delegaciones y verificaciones
 pyproject.toml     dependencias y comandos
 ```
 
+Cada repositorio es compartido por los estudiantes del grupo, y a su vez
+asignan a los docentes como colaboradores.
+
 ## `question.md`: antes de correr
 
 Se escribe **antes** de ejecutar el experimento que contesta la pregunta. Si
@@ -31,15 +34,19 @@ anterior.
 
 ```markdown
 ## Pregunta
+
 Una sola, contestable con los recursos de la materia.
 
 ## Modelo y supuestos
+
 Qué representa el modelo, qué deja afuera, qué escalas importan.
 
 ## Predicciones
+
 Qué esperamos ver y por qué, antes de mirar. Fecha y commit.
 
 ## Observables y criterios de aceptación
+
 Qué vamos a medir y qué resultado nos haría aceptar o rechazar la hipótesis.
 ```
 

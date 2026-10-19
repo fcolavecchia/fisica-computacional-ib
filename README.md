@@ -8,7 +8,10 @@ Material público de la materia.
 ## Ver el sitio localmente
 
 ```bash
-quarto preview
+uv sync
+uv run quarto preview
 ```
 
-Cada push a `2026` publica el sitio con GitHub Actions.
+Cada push a `2026` publica el sitio con GitHub Actions. Las páginas `.qmd` con
+`execute: enabled: true` ejecutan su código al renderizar, con el entorno de
+`pyproject.toml`; el resto del sitio no ejecuta código.

@@ -14,6 +14,9 @@ Instituto Balseiro
 > Este curso se basa en el trabajo de P. Cornaglia y otros docentes de la
 > materia a lo largo de los años.
 
+> Este curso es un piloto de prueba para integrar IA generativa en la enseñanza
+> de Física Computacional.
+
 ## Para qué es esta materia
 
 La materia busca que puedan **producir conocimiento computacional** sobre un
@@ -56,26 +59,11 @@ Las reglas completas están en [Trabajo con IA](02-trabajo-con-ia.md).
 
 ## Cómo es una clase
 
-Las clases son talleres de cuatro horas. La teoría aparece en bloques breves,
-cuando hace falta para tomar una decisión.
+Las clases son talleres hands-on de cuatro horas. A partir de la introducción de un fenómeno de interés físico, se presentan detalles teóricos indispensables para poder realizar la simulación.
 
-| Momento                | Duración | Qué se hace                                                                           |
-| ---------------------- | -------: | ------------------------------------------------------------------------------------- |
-| Pregunta y predicción  |   25 min | Se presenta el fenómeno y cada grupo anota qué espera, **antes** de consultar a la IA |
-| Teoría inicial         |   35 min | Lo necesario para formular el primer experimento                                      |
-| Especificación         |   20 min | Hipótesis, observables y criterios de aceptación                                      |
-| Construcción           |   70 min | Trabajo en grupo asistido por IA                                                      |
-| Pausa                  |   15 min | —                                                                                     |
-| Verificación y crítica |   45 min | Tests, comparaciones, ataque a los propios resultados                                 |
-| Síntesis               |   30 min | Commit reproducible y conclusión provisional                                          |
+## Recorrido propuesto a revisar
 
-Cada clase termina con una afirmación de esta forma:
-
-> Con la evidencia disponible podemos afirmar **X**, siempre que se cumplan
-> **A** y **B**. Todavía no sabemos **C** y el siguiente experimento debería
-> distinguir **D** de **E**.
-
-## Recorrido
+Pueden ser más prácticos dependiendo de cómo vamos.
 
 | Clase | Pregunta o actividad                                    | Producto                              |
 | ----: | ------------------------------------------------------- | ------------------------------------- |
@@ -96,16 +84,14 @@ Cada clase termina con una afirmación de esta forma:
 |    15 | Defensa con IA y síntesis                               | Evaluación individual                 |
 
 Las fechas se confirman al comenzar la cursada. El material de cada
-trabajo práctico está en [`TPs/`](../TPs/README.md).
+trabajo práctico está en [Trabajos prácticos](../TPs/index.md).
 
 ## Cómo se trabaja
 
-- **Grupos de cuatro** con roles que rotan en cada trabajo práctico. Ver
+- **Grupos de dos o tres estudiantes** con roles que rotan en cada trabajo práctico. Ver
   [Grupos y presentaciones](05-grupos-y-revision.md).
 - **La unidad de trabajo es una afirmación auditable**, no un notebook
-  terminado. Ver [Paquete de afirmación](03-entrega-tps.md).
-- **Cada trabajo práctico se entrega a la cátedra y se presenta en clase.** Quien
-  presenta sale sorteado y la nota es del grupo.
+  terminado. Ver [entrega de TPs](03-entrega-tps.md).
 - **Todo resultado entregado se puede regenerar** con un comando desde el
   repositorio.
 

@@ -21,8 +21,17 @@ jobs:
         with:
           version: 1.9.38
 
+      # Python para las páginas que ejecutan código (execute: enabled: true).
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Instalar entorno de Python
+        run: uv sync --locked
+
+      # uv run pone el .venv en el PATH, y Quarto usa ese Python.
       - name: Renderizar
-        run: quarto render
+        run: uv run quarto render
 
       - uses: actions/upload-pages-artifact@v3
         with:

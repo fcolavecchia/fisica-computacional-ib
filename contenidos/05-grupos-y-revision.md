@@ -15,26 +15,27 @@ title: "Grupos y presentaciones"
   asumir más de un aspecto; el objetivo es que el equipo sepa qué está haciendo
   y por qué.
 
-| Rol | Responsabilidad |
-|---|---|
-| Aspecto | Qué hay que cuidar |
-|---|---|
-| **Modelo** | Explicitar supuestos, escalas y predicciones en `question.md` |
-| **Cómputo** | Organizar el código y el uso de las herramientas |
-| **Verificación** | Diseñar tests y buscar contraejemplos |
-| **Registro** | Mantener `lab.md`, `ai-use.md` y la reproducibilidad |
+| Rol              | Responsabilidad                                               |
+| ---------------- | ------------------------------------------------------------- |
+| **Modelo**       | Explicitar supuestos, escalas y predicciones en `question.md` |
+| **Cómputo**      | Organizar el código y el uso de las herramientas              |
+| **Verificación** | Diseñar tests y buscar contraejemplos                         |
+| **Registro**     | Mantener `lab.md`, `ai-use.md` y la reproducibilidad          |
 
 **La verificación nunca queda vacante.** Si una persona no está, el resto del
 equipo se hace cargo de que las pruebas y sus resultados queden registrados.
 
 ## La autonomía crece en el juicio, no en el código
 
-| | Práctico 1 | Práctico 2 | Práctico 3 | Final |
-|---|---|---|---|---|
-| Pregunta | dada | dada | dada | extensión propia |
+Proponemos evolucionar los prácticos desde preguntas más guiadas al comienzo de la materia
+a temas abiertos al final de la cursada. Por ejemplo:
+
+|                   | Práctico 1                    | Práctico 2                    | Práctico 3      | Final                         |
+| ----------------- | ----------------------------- | ----------------------------- | --------------- | ----------------------------- |
+| Pregunta          | dada                          | dada                          | dada            | extensión propia              |
 | Código de partida | plantilla con huecos acotados | plantilla con huecos acotados | solver completo | plantilla con huecos acotados |
-| Evaluadores | lista de la cátedra | parte de la lista | los proponen | los proponen |
-| Interpretación | guiada | parcialmente guiada | libre | libre |
+| Evaluadores       | lista de la cátedra           | parte de la lista             | los proponen    | los proponen                  |
+| Interpretación    | guiada                        | parcialmente guiada           | libre           | libre                         |
 
 ## Entrega
 

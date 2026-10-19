@@ -12,13 +12,16 @@ parte sustancial del trabajo, si pueden verificarla, explicarla y adaptarla.
 
 ## Qué se evalúa
 
-| Evidencia | Modalidad | Peso orientativo |
-|---|---|---:|
-| Trabajo práctico 1: colisiones | grupal | 20% |
-| Trabajo práctico 2: Schrödinger | grupal | 20% |
-| Trabajo práctico 3: fluidos | grupal | 20% |
-| Trabajo práctico final | grupal, con componentes asignados | 20% |
-| Defensas y perturbaciones | individual | 20% |
+| Evidencia                       | Modalidad                         | Peso orientativo (\*) |
+| ------------------------------- | --------------------------------- | --------------------: |
+| Trabajo práctico 1: colisiones  | grupal                            |                   20% |
+| Trabajo práctico 2: Schrödinger | grupal                            |                   20% |
+| Trabajo práctico 3: fluidos     | grupal                            |                   20% |
+| Trabajo práctico final          | grupal, con componentes asignados |                   20% |
+| Defensas y perturbaciones       | individual                        |                   20% |
+
+(\*) El número de prácticos no está definido al momento y dependerá de cómo vayamos
+viendo la respuesta durante las clases.
 
 La nota de cada trabajo práctico combina el paquete entregado y la presentación
 del grupo.
@@ -35,78 +38,78 @@ en la medida en que afecta la claridad, la corrección y la reproducibilidad.
 
 ¿La pregunta y los supuestos están definidos con precisión?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | La pregunta no se contesta con un cálculo, o los supuestos no aparecen. |
-| Suficiente | Pregunta contestable y supuestos listados. |
-| Bueno | Escalas y parámetros adimensionales identificados; se dice qué deja afuera el modelo. |
-| Muy bueno | Los regímenes límite se anticipan y se usan para diseñar controles o experimentos. |
+| Nivel        | Qué se ve                                                                             |
+| ------------ | ------------------------------------------------------------------------------------- |
+| Insuficiente | La pregunta no se contesta con un cálculo, o los supuestos no aparecen.               |
+| Suficiente   | Pregunta contestable y supuestos listados.                                            |
+| Bueno        | Escalas y parámetros adimensionales identificados; se dice qué deja afuera el modelo. |
+| Muy bueno    | Los regímenes límite se anticipan y se usan para diseñar controles o experimentos.    |
 
 ### Evidencia
 
 ¿Los experimentos realmente discriminan la afirmación?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | Figuras que "se ven bien"; ningún resultado posible habría refutado la afirmación. |
-| Suficiente | Experimentos vinculados con la afirmación, con predicción registrada antes de correrlos. |
-| Bueno | Al menos un experimento distingue la hipótesis de una alternativa concreta. |
-| Muy bueno | Las alternativas se descartan con evidencia y la conclusión resiste las preguntas de la presentación. |
+| Nivel        | Qué se ve                                                                                             |
+| ------------ | ----------------------------------------------------------------------------------------------------- |
+| Insuficiente | Figuras que "se ven bien"; ningún resultado posible habría refutado la afirmación.                    |
+| Suficiente   | Experimentos vinculados con la afirmación, con predicción registrada antes de correrlos.              |
+| Bueno        | Al menos un experimento distingue la hipótesis de una alternativa concreta.                           |
+| Muy bueno    | Las alternativas se descartan con evidencia y la conclusión resiste las preguntas de la presentación. |
 
 ### Verificación
 
 ¿Hay controles físicos, numéricos y de implementación independientes?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | Tests que sólo prueban que el código corre. |
-| Suficiente | Controles básicos: una conservación, un límite analítico. |
-| Bueno | Controles independientes de los tres tipos; cada test dice qué afirmación cae si falla. |
-| Muy bueno | Tests que nacieron de fallas reales encontradas y corregidas, con la falla documentada. |
+| Nivel        | Qué se ve                                                                               |
+| ------------ | --------------------------------------------------------------------------------------- |
+| Insuficiente | Tests que sólo prueban que el código corre.                                             |
+| Suficiente   | Controles básicos: una conservación, un límite analítico.                               |
+| Bueno        | Controles independientes de los tres tipos; cada test dice qué afirmación cae si falla. |
+| Muy bueno    | Tests que nacieron de fallas reales encontradas y corregidas, con la falla documentada. |
 
 ### Incertidumbre
 
 ¿Se cuantifican sensibilidad, error y límites?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | Números sin error ni rango de validez. |
-| Suficiente | Error numérico o estadístico estimado, según corresponda. |
-| Bueno | Errores numérico y estadístico separados; sensibilidad a los parámetros relevantes. |
-| Muy bueno | Límites de validez establecidos con evidencia: se muestra dónde deja de valer la conclusión. |
+| Nivel        | Qué se ve                                                                                    |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| Insuficiente | Números sin error ni rango de validez.                                                       |
+| Suficiente   | Error numérico o estadístico estimado, según corresponda.                                    |
+| Bueno        | Errores numérico y estadístico separados; sensibilidad a los parámetros relevantes.          |
+| Muy bueno    | Límites de validez establecidos con evidencia: se muestra dónde deja de valer la conclusión. |
 
 ### Reproducibilidad
 
 ¿Otra persona puede regenerar los resultados?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | Los resultados no se regeneran desde el tag entregado. |
-| Suficiente | `uv run pytest` pasa y los resultados principales salen de un comando. |
-| Bueno | Todo resultado citado tiene script, semilla y commit. |
-| Muy bueno | El script de la cátedra regenera todos los resultados citados desde el tag, sin intervención. |
+| Nivel        | Qué se ve                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------- |
+| Insuficiente | Los resultados no se regeneran desde el tag entregado.                                        |
+| Suficiente   | `uv run pytest` pasa y los resultados principales salen de un comando.                        |
+| Bueno        | Todo resultado citado tiene script, semilla y commit.                                         |
+| Muy bueno    | El script de la cátedra regenera todos los resultados citados desde el tag, sin intervención. |
 
 ### Comunicación
 
 ¿La conclusión distingue lo sabido de lo supuesto?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | La conclusión dice más que la evidencia. |
-| Suficiente | Afirmación acotada, con sus condiciones. |
-| Bueno | Separa lo sabido, lo supuesto y lo que falta; limitaciones explícitas. |
-| Muy bueno | Lista alternativas compatibles con los datos y el experimento que las distinguiría; en la presentación responde las objeciones con evidencia. |
+| Nivel        | Qué se ve                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Insuficiente | La conclusión dice más que la evidencia.                                                                                                      |
+| Suficiente   | Afirmación acotada, con sus condiciones.                                                                                                      |
+| Bueno        | Separa lo sabido, lo supuesto y lo que falta; limitaciones explícitas.                                                                        |
+| Muy bueno    | Lista alternativas compatibles con los datos y el experimento que las distinguiría; en la presentación responde las objeciones con evidencia. |
 
 ### Uso de IA
 
 ¿La delegación fue explícita y los resultados fueron verificados?
 
-| Nivel | Qué se ve |
-|---|---|
-| Insuficiente | Sin registro, o resultados generados aceptados sin control. |
-| Suficiente | Registro con delegaciones y verificaciones. |
-| Bueno | Cada delegación relevante tiene un control independiente asociado. |
-| Muy bueno | El registro documenta errores de la IA, cómo se detectaron y cómo se corrigieron. |
+| Nivel        | Qué se ve                                                                         |
+| ------------ | --------------------------------------------------------------------------------- |
+| Insuficiente | Sin registro, o resultados generados aceptados sin control.                       |
+| Suficiente   | Registro con delegaciones y verificaciones.                                       |
+| Bueno        | Cada delegación relevante tiene un control independiente asociado.                |
+| Muy bueno    | El registro documenta errores de la IA, cómo se detectaron y cómo se corrigieron. |
 
 ## Presentación del grupo
 

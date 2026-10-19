@@ -1,0 +1,357 @@
+---
+title: "De Newton al método de Euler"
+subtitle: "Física Computacional 2026"
+# El sitio no ejecuta código por defecto; esta clase sí, al renderizar.
+execute:
+  enabled: true
+---
+
+> **Idea conductora.** La segunda ley de Newton nos da una ecuación diferencial;
+> una computadora sólo sabe hacer cuentas con números. Para cruzar ese puente
+> reescribimos la ecuación como un sistema de primer orden, reemplazamos el
+> tiempo continuo por una grilla y avanzamos el estado paso a paso. El método
+> más simple para hacerlo es el de **Euler explícito**. Lo importante no es el
+> algoritmo en sí, sino aprender a **predecir y medir** su error.
+
+## 1. De Newton a un sistema de primer orden
+
+### 1.1. Ecuaciones diferenciales ordinarias
+
+Para una partícula de masa $m$ que se mueve en una dimensión bajo una fuerza
+$F(x)$, la segunda ley de Newton dice
+
+$$
+m\frac{d^2x}{dt^2}=F(x).
+$$
+
+La incógnita es la función $x(t)$, y la ecuación relaciona esa función con sus
+derivadas respecto de una **única** variable, el tiempo $t$. Es una
+**ecuación diferencial ordinaria** (EDO). Se llama _ordinaria_ para
+distinguirla de las ecuaciones en derivadas parciales, como Navier–Stokes, donde
+aparecen derivadas respecto de varias variables.
+
+El **orden** de una EDO es el de la derivada más alta que aparece. La segunda
+ley es de **segundo orden**.
+
+### 1.2. Bajar el orden agregando variables
+
+Introducimos el momento lineal $p=m\,dx/dt$ como una incógnita más. La ecuación
+de segundo orden se transforma en **dos** ecuaciones de primer orden:
+
+$$
+\begin{aligned}
+\frac{dx}{dt}&=\frac{p}{m},\\[2pt]
+\frac{dp}{dt}&=F(x).
+\end{aligned}
+$$
+
+Son las **ecuaciones de Hamilton** para una partícula sometida a la fuerza
+$F(x)$. En lo que sigue usaremos la velocidad $v=p/m$, que es equivalente:
+
+$$
+\frac{dx}{dt}=v,\qquad \frac{dv}{dt}=\frac{F(x)}{m}.
+$$
+
+**Pregunta:** _¿Por qué alcanza con conocer $x$ y $v$ en un instante para
+predecir el movimiento?_ Porque las ecuaciones de primer orden dicen cómo
+cambian esas dos cantidades a partir de sus valores actuales. El par $(x,v)$ es
+el **estado** del sistema.
+
+La reducción vale en general: una EDO de orden $k$ se convierte en $k$
+ecuaciones de primer orden agregando como incógnitas las derivadas
+intermedias. Es lo que se hace habitualmente para resolverlas numéricamente.
+
+### 1.3. La forma general
+
+Reunimos todas las incógnitas en un vector de estado
+$\mathbf y=(y^{(1)},\ldots,y^{(N)})$ y escribimos
+
+$$
+\boxed{\frac{d\mathbf y}{dt}=\mathbf f(t,\mathbf y),\qquad \mathbf y(t_0)=\mathbf y_0.}
+$$
+
+La función $\mathbf f$ contiene **toda la física**: dado el estado y el
+instante, devuelve cómo está cambiando el estado. La condición inicial
+$\mathbf y_0$ completa el **problema de valores iniciales**.
+
+**Ejemplos:**
+
+| Sistema | Estado $\mathbf y$ | $\mathbf f(t,\mathbf y)$ | $N$ |
+| --- | --- | --- | ---: |
+| Decaimiento radiactivo | $N$ | $-N/\tau$ | 1 |
+| Partícula en 1D | $(x,v)$ | $\big(v,\ F(x)/m\big)$ | 2 |
+| Tiro oblicuo sin rozamiento | $(x,y,v_x,v_y)$ | $(v_x,\ v_y,\ 0,\ -g)$ | 4 |
+
+En el decaimiento, $N(t)$ es el número de núcleos sin decaer y $\tau$ es la
+vida media. La ecuación ya es de primer orden y su solución es
+$N(t)=N_0e^{-t/\tau}$.
+
+**Atención con la notación:** en el tiro oblicuo, $y$ en cursiva es la altura;
+$\mathbf y$ en negrita es el vector de estado completo.
+
+## 2. Del tiempo continuo a una grilla
+
+### 2.1. La grilla temporal
+
+Una computadora no guarda la función continua $\mathbf y(t)$. Calcula
+aproximaciones $\mathbf y_n\approx\mathbf y(t_n)$ en una **grilla** de tiempos
+
+$$
+t_n=t_0+n\,\Delta t,\qquad n=0,1,2,\ldots
+$$
+
+donde $\Delta t$ es el **paso temporal**. Elegir $\Delta t$ es parte del
+método:
+
+- un paso menor requiere más operaciones;
+- un paso menor suele reducir el error de discretización;
+- pero no corrige errores de otro tipo, por ejemplo en el modelo físico.
+
+### 2.2. Taylor y la diferencia hacia adelante
+
+Para una función suficientemente suave,
+
+$$
+y(t+\Delta t)=y(t)+\Delta t\,y'(t)+\frac{\Delta t^2}{2}\,y''(t)+\mathcal O(\Delta t^3).
+$$
+
+Despejando la derivada:
+
+$$
+y'(t)=\frac{y(t+\Delta t)-y(t)}{\Delta t}+\mathcal O(\Delta t).
+$$
+
+El cociente es la **diferencia hacia adelante**: es la definición de derivada,
+pero sin tomar el límite. El error que cometemos es proporcional a $\Delta t$.
+
+**Predicción:** si reducimos el paso a la mitad, el error de la derivada
+debería reducirse aproximadamente a la mitad.
+
+Lo comprobamos con $y=\sin t$ en $t=0.7$, cuya derivada exacta es
+$\cos 0.7$:
+
+```{python}
+#| label: fig-diferencia-adelante
+#| fig-cap: "Error de la diferencia hacia adelante para $\\sin t$ en $t=0.7$."
+import numpy as np
+import matplotlib.pyplot as plt
+
+def diferencia_adelante(f, t, h):
+    return (f(t + h) - f(t)) / h
+
+t0 = 0.7
+h = 0.5 ** np.arange(1, 12)  # 0.5, 0.25, ..., 0.5**11
+errores = np.abs(diferencia_adelante(np.sin, t0, h) - np.cos(t0))
+
+for i in range(len(h)):
+    cociente = errores[i - 1] / errores[i] if i > 0 else np.nan
+    print(f"{h[i]:10.6f}  {errores[i]:.3e}  {cociente:.3f}")
+
+plt.loglog(h, errores, "o-", label="diferencia hacia adelante")
+plt.loglog(h, errores[-1] * h / h[-1], "--", label=r"referencia $\propto h$")
+plt.xlabel("paso $h$")
+plt.ylabel("error")
+plt.legend()
+plt.show()
+```
+
+Al dividir $h$ por dos, el cociente entre errores sucesivos es
+`{python} f"{errores[0] / errores[1]:.2f}"` al pasar de $h=0.5$ a $h=0.25$, y
+`{python} f"{errores[-2] / errores[-1]:.3f}"` para los pasos más chicos
+($h\approx5\times10^{-4}$). La pendiente en escala log-log es $\approx 1$. Para pasos grandes el término $\mathcal O(\Delta t^2)$
+todavía pesa: la predicción vale en el **régimen asintótico**, cuando $h$ es
+suficientemente chico.
+
+## 3. El método de Euler explícito
+
+### 3.1. Derivación
+
+Aplicamos la diferencia hacia adelante a la ecuación
+$d\mathbf y/dt=\mathbf f(t,\mathbf y)$, evaluando $\mathbf f$ en el estado que
+ya conocemos, $(t_n,\mathbf y_n)$:
+
+$$
+\frac{\mathbf y_{n+1}-\mathbf y_n}{\Delta t}\approx\mathbf f(t_n,\mathbf y_n).
+$$
+
+Despejando el estado nuevo:
+
+$$
+\boxed{\mathbf y_{n+1}=\mathbf y_n+\Delta t\,\mathbf f(t_n,\mathbf y_n).}
+$$
+
+Este es el **método de Euler explícito**, también llamado Euler hacia adelante.
+Partiendo de $\mathbf y_0$ se obtienen todos los estados en forma iterativa:
+
+$$
+\mathbf y_1=\mathbf y_0+\Delta t\,\mathbf f(t_0,\mathbf y_0),\qquad
+\mathbf y_2=\mathbf y_1+\Delta t\,\mathbf f(t_1,\mathbf y_1),\qquad\ldots
+$$
+
+Es **explícito** porque el estado nuevo se calcula sólo con información ya
+conocida.
+
+### 3.2. Lectura geométrica
+
+En cada paso, Euler mide la pendiente $\mathbf f(t_n,\mathbf y_n)$ al
+**comienzo** del intervalo y la mantiene constante hasta $t_{n+1}$. No sabe
+nada de cómo se curva la solución dentro del paso.
+
+**Pregunta:** _en el decaimiento, la pendiente $-N/\tau$ es más empinada al
+comienzo de cada paso que al final. ¿La solución de Euler quedará por encima o
+por debajo de la exacta?_
+
+### 3.3. Ejemplo: decaimiento radiactivo
+
+Para $dN/dt=-N/\tau$, un paso de Euler es
+
+$$
+N_{n+1}=N_n+\Delta t\left(-\frac{N_n}{\tau}\right)=\left(1-\frac{\Delta t}{\tau}\right)N_n.
+$$
+
+En Python:
+
+```{python}
+#| label: fig-decaimiento
+#| fig-cap: "Euler explícito para el decaimiento con dos pasos distintos."
+import numpy as np
+import matplotlib.pyplot as plt
+
+tau = 1.0           # vida media (unidades de tiempo arbitrarias)
+N0 = 1000.0          # núcleos sin decaer en t = 0
+t_final = 3 * tau
+
+t_fino = np.linspace(0, t_final, 300)
+plt.plot(t_fino / tau, N0 * np.exp(-t_fino / tau), label="exacta")
+
+for dt in [0.5 * tau, 0.1 * tau]:
+    pasos = round(t_final / dt)
+    t = dt * np.arange(pasos + 1)
+    N = np.empty(pasos + 1)
+    N[0] = N0
+    for n in range(pasos):
+        N[n + 1] = N[n] + dt * (-N[n] / tau)
+    plt.plot(t / tau, N, "o-", label=f"Euler, dt = {dt / tau:g} tau")
+
+plt.xlabel("t / tau")
+plt.ylabel("N")
+plt.legend()
+plt.show()
+```
+
+La solución de Euler queda **por debajo** de la exacta: al usar la pendiente
+del comienzo de cada paso, el método hace decaer a $N$ más rápido de lo que
+corresponde. Con $\Delta t=0.1\,\tau$ la diferencia se reduce mucho, pero no
+desaparece.
+
+## 4. Error local y error global
+
+### 4.1. Dos errores distintos
+
+Si en un paso partimos del valor **exacto** $\mathbf y(t_n)$, Taylor muestra que
+Euler omite el término $\frac{\Delta t^2}{2}\mathbf y''(t_n)+\cdots$. Ese error
+de un único paso es el **error local de truncamiento**, de orden
+$\mathcal O(\Delta t^2)$.
+
+Pero no nos interesa un solo paso. Para llegar a un tiempo final fijo $t_f$
+hacen falta
+
+$$
+n=\frac{t_f-t_0}{\Delta t}
+$$
+
+pasos, y los errores se acumulan. Si cada paso aporta un error
+$\sim a\,\Delta t^2$, el **error global** en $t_f$ es
+
+$$
+n\cdot a\,\Delta t^2=\frac{t_f-t_0}{\Delta t}\,a\,\Delta t^2=\mathcal O(\Delta t).
+$$
+
+Por eso se dice que Euler es un método de **orden uno**. Esta cuenta es un
+argumento de plausibilidad: los errores de un paso también se propagan a los
+siguientes. Para funciones $\mathbf f$ suficientemente regulares el resultado
+se puede demostrar.
+
+### 4.2. Una predicción comprobable
+
+**Predicción (escrita antes de calcular):** manteniendo fijos el problema y el
+tiempo final, dividir $\Delta t$ por dos debería reducir el error global
+aproximadamente a la mitad.
+
+Para medirlo correctamente:
+
+- fijamos el tiempo final, $t_f=2\tau$;
+- variamos **sólo** $\Delta t$;
+- comparamos con una referencia independiente: la solución exacta
+  $N_0e^{-t_f/\tau}$.
+
+```{python}
+#| label: fig-convergencia
+#| fig-cap: "Error global de Euler en $t_f=2\\tau$ en función del paso."
+t_final = 2 * tau
+divisiones = [10, 20, 40, 80, 160, 320]
+dts, errores = [], []
+for pasos in divisiones:
+    dt = t_final / pasos
+    N = N0
+    for n in range(pasos):
+        N = N + dt * (-N / tau)
+    dts.append(dt)
+    errores.append(abs(N - N0 * np.exp(-t_final / tau)))
+
+for i in range(len(dts)):
+    cociente = errores[i - 1] / errores[i] if i > 0 else np.nan
+    print(f"{dts[i] / tau:8.5f}  {errores[i]:.3e}  {cociente:.3f}")
+
+dts = np.array(dts)
+orden = np.polyfit(np.log(dts), np.log(errores), 1)[0]
+print(f"pendiente log-log = {orden:.3f}")
+
+plt.loglog(dts / tau, errores, "o-", label="Euler")
+plt.loglog(dts / tau, N0 * np.exp(-2) * dts / tau, "--", label="predicción")
+plt.xlabel("dt / tau")
+plt.ylabel("error en t_f")
+plt.legend()
+plt.show()
+```
+
+El cociente tiende a 2 y la pendiente del ajuste log-log es
+`{python} f"{orden:.3f}"`. La evidencia es **compatible con orden uno**.
+
+**Para pensar:** no alcanza con superponer curvas y ver que "se parecen". La
+afirmación cuantitativa se apoya en el **cociente** de errores y en la
+**pendiente**, comparados con una predicción hecha antes.
+
+**Ejercicio optativo.** Mostrar que Euler da exactamente
+$N_n=N_0(1-\Delta t/\tau)^n$. Usando $\ln(1-h)\approx-h-h^2/2$, deducir que en
+$t_f=2\tau$ el error es aproximadamente $N_0e^{-2}\,\Delta t/\tau$. Es la línea
+punteada de la figura.
+
+## 5. Qué podemos concluir y qué no
+
+**Podemos afirmar**, con la evidencia anterior:
+
+- la diferencia hacia adelante y Euler explícito muestran **orden uno** en
+  experimentos de refinamiento del paso;
+- a tiempo final fijo, reducir $\Delta t$ reduce el error global en la misma
+  proporción, dentro del régimen asintótico;
+- Euler sistemáticamente hace decaer a $N$ más rápido que la solución exacta.
+
+**No podemos afirmar**, sólo con esto:
+
+- que un $\Delta t$ que funciona hasta $t_f=2\tau$ sea adecuado para tiempos
+  mucho más largos;
+- que el comportamiento sea el mismo para otros sistemas: lo veremos con el
+  oscilador armónico en la clase 01;
+- que reducir $\Delta t$ mejore un **modelo** físico incorrecto. Euler aproxima
+  la solución de la ecuación que escribimos, no la del fenómeno real.
+
+### Puente con el TP 00
+
+En el [TP 00](../../TPs/00-euler/index.md) aplican lo mismo al tiro oblicuo:
+
+1. escribir $\vec F=m\vec a$ como cuatro ecuaciones de primer orden;
+2. completar un paso de Euler para el estado $(x,y,v_x,v_y)$;
+3. comparar con la solución exacta, que se conoce;
+4. **antes** de correr nada, escribir qué esperan que pase con el error al
+   reducir $\Delta t$, y después contrastarlo.
