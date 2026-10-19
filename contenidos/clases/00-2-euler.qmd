@@ -4,6 +4,14 @@ subtitle: "Física Computacional 2026"
 # El sitio no ejecuta código por defecto; esta clase sí, al renderizar.
 execute:
   enabled: true
+# publicar.sh genera el notebook en contenidos/notebooks/ (no se renderiza).
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/00-2-euler.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/00-2-euler.ipynb
+    icon: google
 ---
 
 > **Idea conductora.** La segunda ley de Newton nos da una ecuación diferencial;

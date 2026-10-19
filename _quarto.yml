@@ -6,6 +6,10 @@ project:
     - "**/*.md"
     - "**/*.ipynb"
     - "!README.md"
+    # Notebooks generados desde las clases .qmd: se descargan, no se renderizan.
+    - "!contenidos/notebooks/"
+  resources:
+    - "contenidos/notebooks/*.ipynb"
 
 lang: es
 
@@ -36,8 +40,6 @@ website:
         contents: "contenidos/la-materia/*"
       - section: "Clases"
         contents: "contenidos/clases/*"
-      - section: "Notebooks"
-        contents: "contenidos/notebooks/*"
       - section: "Trabajos prácticos"
         href: contenidos/TPs/index.md
         contents: "contenidos/TPs/*/index.md"
