@@ -47,9 +47,9 @@ $$
 
 un período dura $2\pi$ y la energía por unidad de masa es $E=(x^2+v^2)/2$.
 
-Los integradores reciben la aceleración como una función $a(x)$. Con el
-resorte, $a(x)=-x$; con el péndulo, $a(\theta)=-\sin\theta$. En Euler
-implícito, eliminar $v_{n+1}$ deja una sola ecuación para $z=x_{n+1}$,
+Los integradores reciben la aceleración como una función $a(x)$; con el
+resorte, $a(x)=-x$. En Euler implícito, eliminar $v_{n+1}$ deja una sola
+ecuación para $z=x_{n+1}$,
 
 $$
 G(z)=z-x_n-dt\,v_n-dt^2\,a(z)=0,
@@ -59,8 +59,9 @@ que se resuelve con Newton–Raphson partiendo de $z=x_n$.
 
 ## Consigna
 
-Antes de correr nada, respondan las predicciones de `question.md`. Después
-completen, en `src/oscilador/simulacion.py` y en este orden:
+Antes de correr los experimentos, respondan las predicciones de
+`question.md`. Después completen, en `src/oscilador/simulacion.py` y en este
+orden:
 
 1. `integrar_euler_explicito`;
 2. `newton_raphson`;
@@ -82,7 +83,5 @@ breve, su evidencia y al menos una limitación en `lab.md`.
 - En qué se diferencian un paso de Euler explícito y uno implícito.
 - Por qué el paso implícito exige resolver una ecuación, y cómo lo hace
   Newton–Raphson.
-- Qué le hace cada Euler a la energía del oscilador, y por qué eso no
-  contradice que ambos converjan.
-- Por qué un error que tiende a cero con `dt` no alcanza para confiar en una
-  trayectoria de muchos ciclos.
+- Qué le hace cada Euler a la energía del oscilador.
+- Qué relación hay entre el error a tiempo final fijo y la confianza en una trayectoria de muchos ciclos.
