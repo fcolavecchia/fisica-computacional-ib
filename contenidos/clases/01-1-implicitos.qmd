@@ -244,13 +244,35 @@ dominar el error de discretización.
 ## 4. Un sistema acoplado con solución analítica
 
 El $^{99m}\mathrm{Tc}$ se usa en estudios de medicina nuclear, incluidos los
-de SPECT. Puede obtenerse de un generador cargado con $^{99}\mathrm{Mo}$.
+de  SPECT (del inglés *Single Photon Emission Computed Tomography*). Puede obtenerse de un generador cargado con $^{99}\mathrm{Mo}$.
 Según el [OIEA](https://www-pub.iaea.org/MTCD/Publications/PDF/Pub1589_web.pdf),
-la semivida del $^{99}\mathrm{Mo}$ es aproximadamente $66$ horas y alrededor
-del $88.6\%$ de sus decaimientos produce $^{99m}\mathrm{Tc}$; la semivida de
+la vida media del $^{99}\mathrm{Mo}$ es aproximadamente $66$ horas y alrededor
+del $88.6\%$ de sus decaimientos produce $^{99m}\mathrm{Tc}$; la vida media de
 este último es aproximadamente $6$ horas. Un
 [resumen del OIEA sobre diagnóstico por imágenes](https://www.iaea.org/sites/default/files/bull554dec2014.pdf)
 describe su uso en SPECT.
+
+La cadena de decaimientos que aprovecha el generador es
+
+$$
+^{99}\mathrm{Mo}\;\xrightarrow[\;66\ \mathrm h\;]{\;\beta^-\;}\;
+^{99m}\mathrm{Tc}+e^-+\bar\nu_e,
+\qquad
+^{99m}\mathrm{Tc}\;\xrightarrow[\;6\ \mathrm h\;]{\;\gamma\;}\;
+^{99}\mathrm{Tc}+\gamma\ (140\ \mathrm{keV}).
+$$
+
+En el primer paso, un decaimiento $\beta^-$, un neutrón del núcleo de
+molibdeno ($Z=42$) se convierte en un protón: el núcleo pasa a ser tecnecio
+($Z=43$) con el mismo número másico, $99$, y emite un electrón y un
+antineutrino. La $m$ de $^{99m}\mathrm{Tc}$ indica un estado **metaestable**:
+un estado excitado del núcleo que vive varias horas. Al pasar al estado
+fundamental emite un fotón $\gamma$ de unos $140$ keV, que es el que detecta
+la cámara en un estudio SPECT. El $^{99}\mathrm{Tc}$ resultante también es
+radiactivo, pero su vida media es de unos $2\times10^{5}$ años: en una escala
+de horas lo podemos tratar como estable. El resto de los decaimientos del
+molibdeno, alrededor del $11\%$, lleva directamente a $^{99}\mathrm{Tc}$ sin
+pasar por el estado metaestable.
 
 Modelamos el intervalo **entre dos extracciones** del tecnecio. Sean $M(t)$ y
 $T(t)$ las cantidades de $^{99}\mathrm{Mo}$ y $^{99m}\mathrm{Tc}$, expresadas
@@ -352,6 +374,36 @@ notebook o en un archivo Python.
 debería acercarse a la mitad en el régimen asintótico. Eso no predice cuál de
 los dos tendrá menor error para un paso particular.
 
+Para comprobar esa predicción con números, medimos el **orden observado**. Si
+un método tiene orden global $p$, para pasos suficientemente chicos el error
+a tiempo final fijo se comporta como
+
+$$
+e(h)\approx C\,h^p,
+$$
+
+con una constante $C$ que depende del problema y del tiempo final, pero no de
+$h$. No conocemos $C$, pero podemos eliminarla comparando dos pasos. Al
+dividir el paso por dos,
+
+$$
+e(h/2)\approx C\left(\frac h2\right)^p=\frac{C\,h^p}{2^p}
+\qquad\Longrightarrow\qquad
+\frac{e(h)}{e(h/2)}\approx 2^p .
+$$
+
+Tomando logaritmo y despejando,
+
+$$
+\boxed{p_{\mathrm{obs}}=\frac{\log[e(h)/e(h/2)]}{\log 2}.}
+$$
+
+En la tabla que imprime el código, cada fila duplica el número de pasos
+respecto de la anterior, y la última columna es $p_{\mathrm{obs}}$ calculado
+entre esas dos filas (`np.log2(error_anterior / error)`). Para los dos Euler
+esperamos $p_{\mathrm{obs}}\approx1$: el error se reduce a la mitad cada vez
+que el paso se divide por dos.
+
 ```{python}
 #| label: fig-mo-tc
 #| fig-cap: "Producción y decaimiento de tecnecio entre extracciones: referencia analítica y dos discretizaciones de Euler."
@@ -422,15 +474,10 @@ plt.legend()
 plt.show()
 ```
 
-El **orden observado** entre dos filas es
-
-$$
-p_{\mathrm{obs}}=
-\frac{\log[e(h)/e(h/2)]}{\log 2}.
-$$
-
-No basta con ajustar una recta y anunciar su pendiente: hay que mirar si los
-últimos cocientes se estabilizan cerca de uno. Tampoco basta con que la figura
+Al leer la columna $p_{\mathrm{obs}}$, no basta con ajustar una recta y
+anunciar su pendiente: hay que mirar si los últimos valores se estabilizan
+cerca de uno. Con pasos grandes todavía no estamos en el régimen asintótico y
+$p_{\mathrm{obs}}$ puede apartarse bastante. Tampoco basta con que la figura
 se vea bien. La tabla fija el observable, el tiempo final, la referencia y los
 pasos usados. Una prueba más exigente podría medir el error en varios tiempos
 o preguntar cuánto se desplaza el instante del máximo de $T$.

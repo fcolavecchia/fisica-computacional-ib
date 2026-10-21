@@ -12,6 +12,11 @@ limitaciones.
 - [Euler y tiro oblicuo](00-euler/index.md): instalación del entorno y primer
   recorrido completo desde las ecuaciones de Newton hasta una figura validada.
 
+## Trabajos prácticos
+
+- [Oscilador con los dos Euler](01-oscilador/index.md): Euler explícito, Euler
+  implícito y Newton–Raphson para integrar un oscilador durante muchos ciclos.
+
 Los enlaces a los repositorios de trabajo aparecen en la página de cada
 actividad. En la actividad inicial cada estudiante crea un repositorio privado
 a partir del template público. En los trabajos posteriores, los repositorios

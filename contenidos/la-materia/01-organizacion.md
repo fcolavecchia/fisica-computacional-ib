@@ -61,7 +61,7 @@ Las reglas completas están en [Trabajo con IA](02-trabajo-con-ia.md).
 
 Las clases son talleres hands-on de cuatro horas. A partir de la introducción de un fenómeno de interés físico, se presentan detalles teóricos indispensables para poder realizar la simulación.
 
-## Recorrido propuesto a revisar
+## Recorrido propuesto muy tentativo
 
 Pueden ser más prácticos dependiendo de cómo vamos.
 

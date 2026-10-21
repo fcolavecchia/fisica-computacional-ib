@@ -14,7 +14,26 @@ Hacen falta tres cosas: una terminal, `uv` y `git`.
 Si usan Visual Studio Code, sirve la terminal integrada: **Terminal → New
 Terminal**.
 
-## 2. Instalar `uv`
+## 2. Instalar y configurar `git`
+
+```bash
+git --version
+```
+
+Si no está instalado:
+
+- **Windows:** [git-scm.com/download/win](https://git-scm.com/download/win).
+- **macOS:** `xcode-select --install`.
+- **Linux:** el gestor de paquetes, por ejemplo `sudo apt install git`.
+
+Después, una sola vez, con su nombre y su correo:
+
+```bash
+git config --global user.name "Nombre Apellido"
+git config --global user.email "correo@ib.edu.ar"
+```
+
+## 3. Instalar `uv`
 
 `uv` instala la versión de Python y las bibliotecas que necesita cada proyecto.
 Primero comprueben si ya está:
@@ -44,37 +63,18 @@ Son las instrucciones oficiales de
 No hace falta instalar Python aparte ni activar entornos: todos los comandos de
 la materia empiezan con `uv run`.
 
-## 3. Instalar y configurar `git`
-
-```bash
-git --version
-```
-
-Si no está instalado:
-
-- **Windows:** [git-scm.com/download/win](https://git-scm.com/download/win).
-- **macOS:** `xcode-select --install`.
-- **Linux:** el gestor de paquetes, por ejemplo `sudo apt install git`.
-
-Después, una sola vez, con su nombre y su correo:
-
-```bash
-git config --global user.name "Nombre Apellido"
-git config --global user.email "correo@ib.edu.ar"
-```
-
 ## 4. Comprobar que todo funciona
 
-Dentro del repositorio de la primera clase:
+Dentro del repositorio de la [actividad inicial](../TPs/00-euler/index.md):
 
 ```bash
 uv sync
-uv run python -m oscilador.chequeo
+uv run pytest
 ```
 
 La primera ejecución tarda unos minutos porque descarga Python y las
-bibliotecas. El chequeo informa qué encontró y genera
-`results/chequeo.png`. Si termina con `Entorno listo`, está todo.
+bibliotecas. Si `pytest` llega a correr los tests, el entorno está listo,
+aunque algunos fallen con `NotImplementedError` (ver más abajo).
 
 ## Si algo no funciona
 
