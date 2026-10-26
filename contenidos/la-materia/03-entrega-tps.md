@@ -9,7 +9,7 @@ ataque.
 
 ## Estructura del repositorio
 
-Todas las plantillas de la materia tienen esta forma:
+Los repositorios de trabajo de la materia tienen esta forma:
 
 ```text
 README.md          cómo reproducir los resultados
@@ -23,8 +23,10 @@ ai-use.md          delegaciones y verificaciones
 pyproject.toml     dependencias y comandos
 ```
 
-Cada repositorio es compartido por los estudiantes del grupo, y a su vez
-asignan a los docentes como colaboradores.
+En la actividad inicial y el TP 01 cada estudiante crea una copia privada del
+template. Desde el TP 02 la cátedra crea un repositorio privado por grupo:
+los estudiantes tienen permiso para trabajar y los docentes tienen acceso
+desde el comienzo. Cada integrante acepta su invitación antes de clonarlo.
 
 ## `question.md`: antes de correr
 

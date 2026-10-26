@@ -1,0 +1,981 @@
+---
+title: "Orden, estabilidad y estructura"
+subtitle: "Cómo elegir un integrador — Física Computacional 2026"
+# Borrador: esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/02-1-integradores.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/02-1-integradores.ipynb
+    icon: google
+---
+
+En las clases anteriores construimos Euler explícito y Euler implícito. Los dos
+son métodos de orden uno, pero aplicados al mismo problema pueden producir
+resultados cualitativamente opuestos. Esto plantea una pregunta más importante
+que aprender una nueva receta:
+
+> **¿Qué evidencia necesitamos para confiar en una simulación?**
+
+Al terminar esta clase podremos distinguir **precisión**, **estabilidad** y
+**fidelidad física**; medir el orden de convergencia de un método; y explicar
+por qué RK4 y Verlet pueden ser buenas elecciones por razones diferentes.
+
+```{python}
+#| label: imports
+#| include: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+```
+
+## 1. Un resultado plausible puede estar equivocado
+
+Consideremos el oscilador armónico sin rozamiento,
+
+$$
+m\ddot x=-kx.
+$$
+
+Con $v=\dot x$ y $\omega^2=k/m$ obtenemos el sistema de primer orden
+
+$$
+\dot x=v,
+\qquad
+\dot v=-\omega^2x.
+$$
+
+Usaremos $m=k=1$, por lo que $\omega=1$ y el período exacto es $T=2\pi$.
+Partimos de $x(0)=1$ y $v(0)=0$.
+
+En el [TP 01](../TPs/01-oscilador/index.md) integraron este oscilador con los
+dos métodos de Euler. Reescribimos los dos pasos con la forma que usaremos en
+toda la clase:
+
+```{python}
+#| label: integradores-euler
+
+def euler_explicito(t, y, dt, omega=1.0):
+    x, v = y
+    return np.array([x + dt * v, v - dt * omega**2 * x])
+
+
+def euler_implicito(t, y, dt, omega=1.0):
+    x, v = y
+    denominador = 1.0 + (omega * dt) ** 2
+    x_nuevo = (x + dt * v) / denominador
+    v_nuevo = (v - dt * omega**2 * x) / denominador
+    return np.array([x_nuevo, v_nuevo])
+
+
+def integrar(paso, y0, t_final, dt, **parametros):
+    n_pasos = int(round(t_final / dt))
+    tiempos = np.arange(n_pasos + 1) * dt
+    estados = np.empty((n_pasos + 1, len(y0)), dtype=float)
+    estados[0] = y0
+    for n in range(n_pasos):
+        estados[n + 1] = paso(tiempos[n], estados[n], dt, **parametros)
+    return tiempos, estados
+```
+
+Todos los pasos de esta clase reciben `(t, y, dt)`, aunque el oscilador no
+dependa explícitamente del tiempo. Así `integrar` sirve para cualquiera de
+ellos y para problemas forzados.
+
+Ésta es la figura del TP 01, con $\Delta t=0.02$ durante diez períodos:
+
+```{python}
+#| label: fig-tp01
+#| fig-cap: "Espacio de fases y energía con los dos Euler, como en el TP 01."
+
+y0 = np.array([1.0, 0.0])
+dt_tp = 0.02
+t_final_tp = 10 * 2 * np.pi
+
+fig, (fases, energias) = plt.subplots(1, 2, figsize=(10, 4), layout="constrained")
+for paso, nombre in [
+    (euler_explicito, "Euler explícito"),
+    (euler_implicito, "Euler implícito"),
+]:
+    t, y = integrar(paso, y0, t_final_tp, dt_tp)
+    energia = 0.5 * (y[:, 0] ** 2 + y[:, 1] ** 2)
+    fases.plot(y[:, 0], y[:, 1], lw=0.8, label=nombre)
+    energias.plot(t / (2 * np.pi), energia / energia[0], label=nombre)
+
+theta = np.linspace(0, 2 * np.pi, 400)
+fases.plot(np.cos(theta), np.sin(theta), "k--", lw=1, label="exacta")
+fases.set(xlabel="$x$", ylabel="$v$", aspect="equal", title="Espacio de fases")
+energias.axhline(1, color="black", ls="--", lw=1)
+energias.set(xlabel="tiempo [períodos]", ylabel="$E/E_0$", title="Energía relativa")
+energias.legend()
+plt.show()
+```
+
+Euler explícito produce una espiral que se abre y Euler implícito una que se
+cierra: la energía crece en un caso y decrece en el otro. ¿De dónde sale esa
+diferencia, si los dos métodos tienen orden uno?
+
+### 1.1. Un paso, gráficamente
+
+Miremos un solo paso en el problema más simple, el decaimiento $\dot y=-y$ de
+la [clase 01-1](01-1-implicitos.qmd). Cada curva gris es una solución exacta
+que parte de otra condición inicial: por cada punto del plano $(t,y)$ pasa
+una, y $f(y)=-y$ es su pendiente en ese punto. Usamos un paso grande,
+$h=0.6$, para que las diferencias se vean.
+
+```{python}
+#| label: fig-un-paso
+#| fig-cap: "Un paso de cada Euler para el decaimiento. La cruz marca la solución exacta en t_{n+1}."
+
+h = 0.6
+y_n = 1.0
+y_explicito = y_n + h * (-y_n)
+y_implicito = y_n / (1 + h)
+
+tt = np.linspace(-0.15, h + 0.25, 200)
+fig, ejes = plt.subplots(1, 2, figsize=(10, 4), sharey=True, layout="constrained")
+for ax, nombre, y_nuevo, color in [
+    (ejes[0], "explícito", y_explicito, "C0"),
+    (ejes[1], "implícito", y_implicito, "C1"),
+]:
+    for c in np.linspace(0.2, 1.4, 13):
+        ax.plot(tt, c * np.exp(-tt), color="0.85", lw=0.8)
+    ax.plot(tt, y_n * np.exp(-tt), "k-", lw=1.5, label="solución por $y_n$")
+    if nombre == "explícito":
+        ax.plot([0, h], [y_n, y_nuevo], "-", color=color, lw=2, label="pendiente $f(y_n)$")
+        ax.set_title(r"Explícito: $y_{n+1}=y_n+h\,f(y_n)$")
+    else:
+        ax.plot(tt, y_nuevo * np.exp(h - tt), "--", color=color, lw=1.2, label="solución por $y_{n+1}$")
+        ax.plot([0, h], [y_n, y_nuevo], "-", color=color, lw=2, label="pendiente $f(y_{n+1})$")
+        ax.set_title(r"Implícito: $y_{n+1}=y_n+h\,f(y_{n+1})$")
+    ax.plot(0, y_n, "ko", ms=7)
+    ax.plot(h, y_nuevo, "o", color=color, ms=7)
+    ax.plot(h, y_n * np.exp(-h), "kx", ms=8, label="exacta en $t_{n+1}$")
+    ax.annotate("$y_n$", (0, y_n), xytext=(-22, 4), textcoords="offset points")
+    ax.annotate("$y_{n+1}$", (h, y_nuevo), xytext=(6, -4), textcoords="offset points")
+    ax.set_xticks([0, h], ["$t_n$", "$t_{n+1}$"])
+    ax.set(xlim=(tt[0], tt[-1]), ylim=(0, 1.25))
+    ax.legend(loc="upper right", fontsize=8)
+ejes[0].set_ylabel("$y$")
+plt.show()
+```
+
+- **Explícito:** la recta sale de $y_n$ con la pendiente de la solución que
+  pasa por $y_n$: es la tangente en el punto de **partida**. Como la solución
+  es convexa, la tangente queda por debajo y el paso termina debajo de la
+  cruz.
+- **Implícito:** la recta llega a $y_{n+1}$ con la pendiente de la solución
+  que pasa por $y_{n+1}$, en trazos: es la tangente en el punto de
+  **llegada**. Hay que buscar el $y_{n+1}$ cuya tangente, prolongada hacia
+  atrás, pasa por $y_n$; por eso cada paso es una ecuación. El paso termina
+  encima de la cruz.
+
+A primer orden, los dos errores locales tienen el mismo tamaño,
+$h^2/2$, y signos opuestos.
+
+En el oscilador pasa lo mismo, pero en el plano $(x,v)$. Las órbitas exactas
+son circunferencias centradas en el origen y el campo $(v,-x)$ es tangente a
+ellas.
+
+```{python}
+#| label: fig-un-paso-fases
+#| fig-cap: "Un paso de cada Euler en el plano de fases, con dt = 0.5. Las circunferencias punteadas pasan por cada y_{n+1}."
+
+h = 0.5
+estado = np.array([np.cos(0.9), -np.sin(0.9)])
+
+fig, ax = plt.subplots(figsize=(5, 5), layout="constrained")
+ax.plot(np.cos(theta), np.sin(theta), "k-", lw=1, label="órbita exacta por $y_n$")
+for paso, nombre, color in [
+    (euler_explicito, "explícito", "C0"),
+    (euler_implicito, "implícito", "C1"),
+]:
+    nuevo = paso(0.0, estado, h)
+    radio = np.hypot(*nuevo)
+    ax.plot(radio * np.cos(theta), radio * np.sin(theta), ":", color=color, lw=1)
+    ax.annotate("", xy=nuevo, xytext=estado, arrowprops=dict(arrowstyle="->", color=color, lw=2))
+    ax.plot(*nuevo, "o", color=color, ms=7, label=f"paso {nombre}")
+ax.plot(*estado, "ko", ms=7)
+ax.annotate("$y_n$", estado, xytext=(8, 4), textcoords="offset points")
+ax.set(xlabel="$x$", ylabel="$v$", aspect="equal", xlim=(-1.3, 1.3), ylim=(-1.3, 1.3))
+ax.legend(loc="lower left", fontsize=8)
+plt.show()
+```
+
+El paso explícito sigue la tangente en $y_n$, y una recta tangente a una
+circunferencia queda siempre afuera de ella: el radio crece. El implícito
+llega a $y_{n+1}$ siguiendo la tangente en $y_{n+1}$; ahora es $y_n$ el que
+queda sobre esa tangente, afuera de la circunferencia de $y_{n+1}$: el radio
+decrece.
+
+### 1.2. La energía en un paso
+
+Con $\omega=1$ la energía es $E=\tfrac12(x^2+v^2)$, la mitad del radio al
+cuadrado. Un paso explícito es
+
+$$
+x_{n+1}=x_n+\Delta t\,v_n,
+\qquad
+v_{n+1}=v_n-\Delta t\,x_n .
+$$
+
+Al sumar los cuadrados, los términos cruzados $\pm2\Delta t\,x_nv_n$ se
+cancelan:
+
+$$
+x_{n+1}^2+v_{n+1}^2=(1+\Delta t^2)\,(x_n^2+v_n^2)
+\qquad\Longrightarrow\qquad
+E_{n+1}=(1+\Delta t^2)\,E_n .
+$$
+
+Es el teorema de Pitágoras de la figura anterior: el desplazamiento
+$\Delta t\,(v_n,-x_n)$ es perpendicular al radio $(x_n,v_n)$ y mide
+$\Delta t$ veces el radio.
+
+Un paso implícito es
+
+$$
+x_{n+1}=x_n+\Delta t\,v_{n+1},
+\qquad
+v_{n+1}=v_n-\Delta t\,x_{n+1}.
+$$
+
+Despejando el estado **viejo**,
+
+$$
+x_n=x_{n+1}-\Delta t\,v_{n+1},
+\qquad
+v_n=v_{n+1}+\Delta t\,x_{n+1},
+$$
+
+y la misma cuenta, con los papeles invertidos, da
+
+$$
+x_n^2+v_n^2=(1+\Delta t^2)\,(x_{n+1}^2+v_{n+1}^2)
+\qquad\Longrightarrow\qquad
+E_{n+1}=\frac{E_n}{1+\Delta t^2}.
+$$
+
+Euler implícito es Euler explícito recorrido hacia atrás en el tiempo. Después
+de $n$ pasos,
+
+$$
+\frac{E_n}{E_0}=(1+\Delta t^2)^{n}\ \text{(explícito)},
+\qquad
+\frac{E_n}{E_0}=(1+\Delta t^2)^{-n}\ \text{(implícito)}.
+$$
+
+Lo comprobamos con la simulación de la figura del TP 01:
+
+```{python}
+#| label: energia-un-paso
+
+for paso, nombre, signo in [
+    (euler_explicito, "Euler explícito", 1),
+    (euler_implicito, "Euler implícito", -1),
+]:
+    t, y = integrar(paso, y0, t_final_tp, dt_tp)
+    n = len(t) - 1
+    simulado = np.sum(y[-1] ** 2) / np.sum(y0**2)
+    predicho = (1 + dt_tp**2) ** (signo * n)
+    print(f"{nombre}: n = {n} pasos, E_n/E_0 simulado {simulado:.10f}, predicho {predicho:.10f}")
+```
+
+### 1.3. Un paso más grande
+
+Con esos factores podemos predecir sin simular. Usemos $\Delta t=0.15$
+durante doce períodos. Antes de ejecutar la celda
+siguiente:
+
+1. ¿Cuánto valdrá, aproximadamente, la amplitud final con cada Euler?
+2. Si ambos tienen orden uno, ¿deberían equivocarse de la misma manera?
+
+```{python}
+#| label: fig-dos-euler
+#| fig-cap: "El mismo oscilador integrado con los dos métodos de Euler."
+
+y0 = np.array([1.0, 0.0])
+dt = 0.15
+t_final = 12 * 2 * np.pi
+
+fig, ax = plt.subplots(figsize=(8, 4))
+for paso, nombre in [
+    (euler_explicito, "Euler explícito"),
+    (euler_implicito, "Euler implícito"),
+]:
+    t, y = integrar(paso, y0, t_final, dt)
+    ax.plot(t, y[:, 0], label=nombre)
+    print(f"{nombre}: {len(t) - 1} pasos, amplitud final {np.hypot(*y[-1]):.3g}")
+
+ax.plot(t, np.cos(t), "k--", lw=1.5, label="solución exacta")
+ax.set(xlabel="$t$", ylabel="$x(t)$")
+ax.legend()
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Euler explícito aumenta la amplitud; Euler implícito la reduce. El segundo no
+"resuelve mejor" el oscilador por ser estable: introduce disipación numérica en
+un sistema que físicamente no disipa.
+
+## 2. Tres preguntas distintas
+
+### 2.1. ¿Converge al refinar el paso?
+
+Llamemos $e(\Delta t)$ al error a un **tiempo final fijo** $T$, por ejemplo
+$e=|x_N-x(T)|$ con $N=T/\Delta t$. Distingamos dos errores:
+
+- el **error local** es el que comete un solo paso partiendo de la solución
+  exacta; para Euler es $O(\Delta t^2)$, porque el método reproduce el
+  desarrollo de Taylor hasta el término lineal;
+- el **error global** es el que se acumula en los $N=T/\Delta t$ pasos. Si
+  cada paso agrega un error local $O(\Delta t^{p+1})$, al final tenemos, en
+  el peor caso, $N\cdot O(\Delta t^{p+1})=O(\Delta t^{p})$.
+
+Decimos que un método tiene **orden global** $p$ si, para pasos
+suficientemente pequeños,
+
+$$
+e(\Delta t)\approx C\,\Delta t^p,
+$$
+
+donde $C$ depende del problema y de $T$, pero no de $\Delta t$. No conocemos
+$C$, pero podemos eliminarlo comparando dos pasos. Es la misma deducción de la
+[clase 01-1](01-1-implicitos.qmd); la repetimos para tenerla a mano. Si dividimos el paso por
+dos,
+
+$$
+e(\Delta t/2)\approx C\left(\frac{\Delta t}{2}\right)^p
+=\frac{C\,\Delta t^p}{2^p},
+\qquad\text{de modo que}\qquad
+\frac{e(\Delta t)}{e(\Delta t/2)}\approx 2^p .
+$$
+
+Tomando logaritmo,
+
+$$
+p\approx
+\frac{\log(e(\Delta t)/e(\Delta t/2))}{\log 2}.
+$$
+
+Dividir por dos no tiene nada de especial: es una elección cómoda. Si el
+segundo paso es $\Delta t/r$, el cociente de errores es $r^p$ y
+$p\approx\log[e(\Delta t)/e(\Delta t/r)]/\log r$. Con varios pasos, $p$ es la
+pendiente de $\log e$ contra $\log\Delta t$. Como referencia: un método de
+orden uno reduce el error a la mitad al dividir el paso por dos; uno de orden
+cuatro lo reduce dieciséis veces.
+
+Esta estimación sólo tiene sentido dentro del **régimen asintótico**, donde
+el término $C\Delta t^p$ domina a los de orden superior: reducir una vez un
+paso grande no alcanza para demostrar el orden. Con pasos demasiado chicos
+aparece el problema opuesto: el error deja de bajar porque domina el
+redondeo.
+
+**¿Y si no conocemos la solución exacta?** La fórmula usa $e(\Delta t)$, que
+necesita $x(T)$. En casi todos los problemas de interés no lo tenemos. Podemos
+usar la propia simulación como referencia. Si $y_{\Delta t}$ es el resultado
+con paso $\Delta t$ y $y_{\Delta t}\approx y(T)+C\Delta t^p$, la diferencia
+entre dos refinamientos sucesivos es
+
+$$
+\delta(\Delta t)=\left|y_{\Delta t}-y_{\Delta t/2}\right|
+\approx C\,\Delta t^p\left(1-2^{-p}\right),
+$$
+
+que también cae como $\Delta t^p$: el factor $1-2^{-p}$ no depende del paso.
+Entonces
+
+$$
+p\approx\frac{\log[\delta(\Delta t)/\delta(\Delta t/2)]}{\log 2},
+$$
+
+y hacen falta **tres** simulaciones, con $\Delta t$, $\Delta t/2$ y
+$\Delta t/4$, para una estimación. Se llama **autoconvergencia**. Conocido
+$p$, la misma diferencia estima el error de la simulación más fina:
+$e(\Delta t/2)\approx\delta(\Delta t)/(2^p-1)$.
+
+```{python}
+#| label: autoconvergencia
+
+periodo = 2 * np.pi
+numeros_de_pasos = [40, 80, 160, 320, 640, 1280]
+finales = [integrar(euler_explicito, y0, periodo, periodo / n)[1][-1] for n in numeros_de_pasos]
+diferencias = [np.max(np.abs(a - b)) for a, b in zip(finales, finales[1:])]
+
+print(f"{'N':>5} {'delta':>11} {'p observado':>12}")
+for i, (n, delta) in enumerate(zip(numeros_de_pasos, diferencias)):
+    orden = f"{np.log2(diferencias[i - 1] / delta):.3f}" if i > 0 else "—"
+    print(f"{n:5d} {delta:11.3e} {orden:>12}")
+
+estimado = diferencias[-1] / (2**1 - 1)
+real = np.max(np.abs(finales[-1] - y0))
+print(f"\nerror de N = {numeros_de_pasos[-1]}: estimado {estimado:.3e}, real {real:.3e}")
+```
+
+La autoconvergencia muestra que el cálculo converge, con el orden esperado,
+a **algo**: a la solución de las ecuaciones que el código implementa. Si esas
+ecuaciones no son las del modelo que queríamos, converge igual de bien a la
+respuesta equivocada.
+
+### 2.2. ¿El cálculo permanece acotado?
+
+La convergencia habla del límite $\Delta t\to0$ con el tiempo final $T$ fijo.
+La **estabilidad** pregunta lo opuesto: con $\Delta t$ **fijo**, ¿qué pasa
+cuando el número de pasos $n$ crece? Si la solución exacta permanece acotada,
+¿la numérica también?
+
+En un problema lineal la respuesta está en el **factor de amplificación**:
+el número por el que cada paso multiplica la cantidad que debería mantenerse
+acotada. Ya calculamos los de los dos Euler:
+
+| Problema | Exacto | Euler explícito | Euler implícito |
+|---|---|---|---|
+| Decaimiento $\dot y=-\lambda y$ ([clase 01-1](01-1-implicitos.qmd)) | $e^{-\lambda\Delta t}$ | $1-\lambda\Delta t$ | $1/(1+\lambda\Delta t)$ |
+| Oscilador, amplitud (sección 1.2) | $1$ | $\sqrt{1+\Delta t^2}$ | $1/\sqrt{1+\Delta t^2}$ |
+
+Después de $n$ pasos, el factor queda elevado a la $n$. Si su módulo es mayor
+que uno, el resultado crece sin cota aunque cada paso sea preciso; si es
+menor que uno, queda acotado. Con esa regla:
+
+- **decaimiento:** el explícito es estable sólo si $\lambda\Delta t<2$; el
+  implícito, para cualquier $\Delta t$;
+- **oscilador:** el factor del explícito es mayor que uno para **todo**
+  $\Delta t>0$; el del implícito, menor que uno para todo $\Delta t$.
+
+Dos consecuencias:
+
+- **Convergente no implica estable con el paso elegido.** En el oscilador,
+  Euler explícito converge (el error a $T$ fijo cae como $\Delta t$) y, sin
+  embargo, ningún paso lo vuelve estable.
+- **Estable no implica correcto.** Euler implícito queda acotado porque su
+  factor es menor que uno, y es el mismo motivo por el que disipa una energía
+  que el sistema físico no pierde. Eso es lo que mira la tercera pregunta.
+
+### 2.3. ¿Respeta la estructura del problema?
+
+Para la solución exacta, la energía $E=\tfrac12(v^2+x^2)$ se conserva:
+$E(t)=E(0)$. Como vimos en la sección 1.2, es un control independiente de
+mirar si la curva "parece una oscilación", y tiene una propiedad que lo hace
+especialmente útil: no hace falta conocer la solución exacta para medirlo.
+
+```{python}
+#| label: fig-energia-euler
+#| fig-cap: "Error relativo de energía: crecimiento con Euler explícito y disipación con Euler implícito."
+
+fig, ax = plt.subplots(figsize=(8, 4))
+for paso, nombre in [
+    (euler_explicito, "Euler explícito"),
+    (euler_implicito, "Euler implícito"),
+]:
+    t, y = integrar(paso, y0, t_final, dt)
+    energia = 0.5 * (y[:, 0] ** 2 + y[:, 1] ** 2)
+    ax.plot(t, energia / energia[0] - 1, label=nombre)
+
+ax.axhline(0, color="black", lw=1)
+ax.set(xlabel="$t$", ylabel="$(E(t)-E_0)/E_0$")
+ax.legend()
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+> **Actividad breve.** ¿Cómo depende de $\Delta t$ el tiempo $t_*$ en que la
+> energía se aparta un 1 % de su valor inicial? Hagan una predicción con los
+> factores de la sección 1.2 y propongan un experimento que la mida.
+
+## 3. Runge–Kutta: representar mejor lo que ocurre dentro del paso
+
+Euler usa una sola pendiente, la del comienzo del paso, y por eso reproduce el
+desarrollo de Taylor de la solución sólo hasta el término lineal. Los métodos
+de Runge–Kutta evalúan $f$ en algunos puntos **dentro** del paso y combinan
+esas pendientes para que el resultado coincida con Taylor hasta un orden más
+alto, sin calcular derivadas de $f$.
+
+### 3.1. Deducción de RK2
+
+Escribamos el problema como $\dot y=f(t,y)$. Buscamos un método con dos
+evaluaciones de la forma
+
+$$
+\begin{aligned}
+k_1 &= f(t_n,y_n),\\
+k_2 &= f(t_n+\alpha\Delta t,\;y_n+\beta\Delta t\,k_1),\\
+y_{n+1} &= y_n+\Delta t\,(b_1k_1+b_2k_2),
+\end{aligned}
+$$
+
+y queremos elegir $\alpha$, $\beta$, $b_1$ y $b_2$ para que el error local sea
+$O(\Delta t^3)$.
+
+**La solución exacta.** Derivando $\dot y=f(t,y(t))$ con la regla de la
+cadena, $\ddot y=f_t+f_y\,f$, donde $f_t=\partial f/\partial t$ y
+$f_y=\partial f/\partial y$ (en un sistema, $f_y$ es la matriz jacobiana).
+Entonces
+
+$$
+y(t_n+\Delta t)=y_n+\Delta t\,f+\frac{\Delta t^2}{2}\,(f_t+f_y f)+O(\Delta t^3),
+$$
+
+con $f$ y sus derivadas evaluadas en $(t_n,y_n)$.
+
+**El método.** Desarrollando $k_2$ a primer orden alrededor de $(t_n,y_n)$,
+
+$$
+k_2=f+\alpha\Delta t\,f_t+\beta\Delta t\,f_y f+O(\Delta t^2),
+$$
+
+y reemplazando,
+
+$$
+y_{n+1}=y_n+(b_1+b_2)\,\Delta t\,f
++b_2\,\Delta t^2\,(\alpha f_t+\beta f_y f)+O(\Delta t^3).
+$$
+
+**Igualando** los coeficientes de $\Delta t$ y de $\Delta t^2$ para cualquier
+$f$:
+
+$$
+b_1+b_2=1,\qquad b_2\,\alpha=\frac12,\qquad b_2\,\beta=\frac12.
+$$
+
+Son tres ecuaciones para cuatro incógnitas: hay una **familia** de métodos de
+orden dos, todos con $\alpha=\beta$. Dos elecciones habituales:
+
+- **Punto medio** ($b_1=0$, $b_2=1$, $\alpha=\beta=\tfrac12$): se usa Euler
+  para estimar el estado a mitad del paso, y la pendiente en ese punto para
+  dar el paso completo,
+  $$
+  y_{n+1}=y_n+\Delta t\,f\!\left(t_n+\tfrac{\Delta t}{2},\;
+  y_n+\tfrac{\Delta t}{2}k_1\right).
+  $$
+- **Heun** ($b_1=b_2=\tfrac12$, $\alpha=\beta=1$): se promedia la pendiente
+  inicial con la pendiente en el punto que predice Euler,
+  $$
+  y_{n+1}=y_n+\frac{\Delta t}{2}\left[k_1+f(t_n+\Delta t,\;y_n+\Delta t\,k_1)\right].
+  $$
+
+El error local es $O(\Delta t^3)$ y, por el argumento de la sección 2.1, el
+error global es $O(\Delta t^2)$. El costo es el doble que Euler: dos
+evaluaciones de $f$ por paso.
+
+```{python}
+#| label: rk2
+
+def derivada_oscilador(t, y, omega=1.0):
+    x, v = y
+    return np.array([v, -omega**2 * x])
+
+
+def paso_rk2(t, y, dt, derivada=derivada_oscilador, **parametros):
+    """Runge–Kutta de orden dos, variante del punto medio."""
+    k1 = derivada(t, y, **parametros)
+    k2 = derivada(t + dt / 2, y + dt * k1 / 2, **parametros)
+    return y + dt * k2
+```
+
+### 3.2. RK4
+
+La misma idea, llevada hasta coincidir con Taylor en el término
+$\Delta t^4$, exige cuatro evaluaciones. La cuenta es igual a la anterior,
+pero mucho más larga, y vuelve a dar una familia de soluciones. La más usada
+es el método de Runge–Kutta clásico de orden cuatro:
+
+$$
+\begin{aligned}
+k_1 &= f(t_n,y_n),\\
+k_2 &= f(t_n+\tfrac12\Delta t,y_n+\tfrac12\Delta t k_1),\\
+k_3 &= f(t_n+\tfrac12\Delta t,y_n+\tfrac12\Delta t k_2),\\
+k_4 &= f(t_n+\Delta t,y_n+\Delta t k_3),\\
+y_{n+1} &= y_n+\frac{\Delta t}{6}(k_1+2k_2+2k_3+k_4).
+\end{aligned}
+$$
+
+Las etapas $k_2$ y $k_3$ son dos estimaciones de la pendiente a mitad del
+paso, y $k_4$ una estimación al final. Si $f$ dependiera sólo de $t$, el
+método se reduciría a la regla de Simpson para $\int_{t_n}^{t_{n+1}}f\,dt$,
+con pesos $\tfrac16$, $\tfrac46$ y $\tfrac16$. El error local es
+$O(\Delta t^5)$ y el global, $O(\Delta t^4)$, con cuatro evaluaciones de $f$
+por paso.
+
+```{python}
+#| label: rk4
+
+def paso_rk4(t, y, dt, derivada=derivada_oscilador, **parametros):
+    k1 = derivada(t, y, **parametros)
+    k2 = derivada(t + dt / 2, y + dt * k1 / 2, **parametros)
+    k3 = derivada(t + dt / 2, y + dt * k2 / 2, **parametros)
+    k4 = derivada(t + dt, y + dt * k3, **parametros)
+    return y + dt * (k1 + 2 * k2 + 2 * k3 + k4) / 6
+```
+
+## 4. Verlet: aprovechar la forma de las ecuaciones
+
+Runge–Kutta trata a $\dot y=f(t,y)$ como un sistema cualquiera. En mecánica,
+las ecuaciones tienen una forma particular:
+
+$$
+\dot x=v,\qquad \dot v=a(x),
+$$
+
+con una aceleración que depende sólo de la posición. Verlet aprovecha esa
+forma. Usamos la notación $a_n=a(x_n)$.
+
+### 4.1. Deducción: Störmer–Verlet
+
+Escribamos el desarrollo de Taylor de la posición hacia adelante y hacia
+atrás en el tiempo:
+
+$$
+\begin{aligned}
+x(t+\Delta t) &= x+v\,\Delta t+\frac12a\,\Delta t^2+\frac16\dddot x\,\Delta t^3+\frac1{24}x^{(4)}\Delta t^4+O(\Delta t^5),\\
+x(t-\Delta t) &= x-v\,\Delta t+\frac12a\,\Delta t^2-\frac16\dddot x\,\Delta t^3+\frac1{24}x^{(4)}\Delta t^4+O(\Delta t^5).
+\end{aligned}
+$$
+
+Al **sumarlas**, se cancelan todos los términos impares, incluida la
+velocidad:
+
+$$
+x(t+\Delta t)+x(t-\Delta t)=2x+a\,\Delta t^2+\frac1{12}x^{(4)}\Delta t^4+O(\Delta t^6).
+$$
+
+Descartando el término en $\Delta t^4$,
+
+$$
+\boxed{x_{n+1}=2x_n-x_{n-1}+a_n\,\Delta t^2}
+\qquad\text{con defecto } \tau_n=\frac1{12}x^{(4)}\Delta t^4=O(\Delta t^4).
+$$
+
+Ésta es la forma original del método, llamada de **Störmer–Verlet** o de
+posiciones. Tiene tres rasgos:
+
+- usa **una sola evaluación** de la fuerza por paso;
+- es **simétrica en el tiempo**: si se intercambian $x_{n+1}$ y $x_{n-1}$
+  (es decir, $\Delta t\to-\Delta t$), la ecuación no cambia, igual que la
+  dinámica exacta sin rozamiento;
+- es un método de **dos pasos**: necesita $x_{n-1}$ además de $x_n$. Para
+  arrancar hay que obtener $x_1$ de otra manera, por ejemplo con
+  $x_1=x_0+v_0\Delta t+\tfrac12a_0\Delta t^2$.
+
+La velocidad no aparece. Si se necesita, por ejemplo para la energía, se la
+estima restando los dos desarrollos:
+
+$$
+v_n=\frac{x_{n+1}-x_{n-1}}{2\Delta t}+O(\Delta t^2).
+$$
+
+**Orden global.** La cuenta anterior tiene un término descartado de orden
+$\Delta t^4$, pero Störmer no avanza el estado con una sola suma como Euler:
+su lado izquierdo es una **segunda diferencia**. Al dividir la fórmula por
+$\Delta t^2$ se lee como una aproximación de la aceleración,
+
+$$
+\frac{x_{n+1}-2x_n+x_{n-1}}{\Delta t^2}=a_n+O(\Delta t^2).
+$$
+
+Es decir, Verlet reemplaza la aceleración exacta por una aproximación de
+orden dos. Integrar una aceleración con ese error durante un tiempo fijo deja
+un error de posición también de orden dos. Por eso Störmer–Verlet —y sus
+formas leapfrog y Velocity Verlet— tienen **orden global dos**. La tabla de
+la sección 5.1 lo confirma al refinar el paso.
+
+### 4.2. Leapfrog: velocidades a mitad del paso
+
+Si definimos las velocidades en los **puntos medios** del intervalo,
+$v_{n+1/2}=(x_{n+1}-x_n)/\Delta t$, la fórmula de Störmer se separa en dos
+actualizaciones que se alternan, saltando una sobre la otra como en el juego
+del rango (en inglés, *leapfrog*):
+
+$$
+\begin{aligned}
+v_{n+1/2} &= v_{n-1/2}+a_n\,\Delta t,\\
+x_{n+1} &= x_n+v_{n+1/2}\,\Delta t.
+\end{aligned}
+$$
+
+Restando $x_{n+1}-x_n$ y $x_n-x_{n-1}$ se recupera exactamente la forma de
+Störmer. Es el mismo método: posiciones en los tiempos enteros y velocidades
+en los semienteros. Su inconveniente es que $x$ y $v$ nunca se conocen en el
+mismo instante.
+
+### 4.3. Velocity Verlet: posiciones y velocidades en el mismo tiempo
+
+Para tener $x_n$ y $v_n$ juntos, partimos el cambio de velocidad del leapfrog
+en dos mitades, una a cada lado de la actualización de la posición. Cada paso
+queda formado por un **medio impulso**, un **desplazamiento** y otro **medio
+impulso**:
+
+$$
+\begin{aligned}
+v_{n+1/2} &= v_n+\frac12a_n\,\Delta t,\\
+x_{n+1} &= x_n+v_{n+1/2}\,\Delta t,\\
+v_{n+1} &= v_{n+1/2}+\frac12a_{n+1}\,\Delta t.
+\end{aligned}
+$$
+
+Eliminando la velocidad intermedia se obtiene la forma habitual de **Velocity
+Verlet**, que actualiza primero la posición y después combina la aceleración
+vieja con la nueva:
+
+$$
+x_{n+1}=x_n+v_n\Delta t+\frac12a_n\Delta t^2,
+$$
+
+$$
+v_{n+1}=v_n+\frac12(a_n+a_{n+1})\Delta t.
+$$
+
+En una implementación que conserva $a_{n+1}$ para el paso siguiente, sólo
+hace falta una evaluación **nueva** de la fuerza por paso. La función
+`paso_verlet` de abajo, en cambio, es una función de paso aislada: no guarda
+esa aceleración entre llamadas y por eso evalúa la fuerza en ambos extremos
+del paso. Al comparar el costo de ese código contaremos dos evaluaciones por
+paso.
+
+| Variante | Qué se guarda | Arranque | Velocidad |
+|---|---|---|---|
+| Störmer–Verlet | $x_{n-1}$, $x_n$ | necesita $x_1$ aparte | estimada, $O(\Delta t^2)$ |
+| Leapfrog | $x_n$, $v_{n-1/2}$ | necesita $v_{1/2}$ aparte | en tiempos semienteros |
+| Velocity Verlet | $x_n$, $v_n$ | basta con $(x_0,v_0)$ | en los mismos tiempos que $x$ |
+
+Las tres producen la **misma sucesión de posiciones** si se inicializan de
+forma consistente. Para comprobarlo, de la forma de Velocity Verlet:
+
+$$
+x_{n+1}-x_n=(x_n-x_{n-1})+(v_n-v_{n-1})\Delta t+\frac12(a_n-a_{n-1})\Delta t^2
+=(x_n-x_{n-1})+a_n\Delta t^2,
+$$
+
+usando $v_n-v_{n-1}=\tfrac12(a_{n-1}+a_n)\Delta t$. Es la forma de Störmer.
+
+```{python}
+#| label: verlet
+
+def paso_verlet(t, y, dt, omega=1.0):
+    x, v = y
+    a = -omega**2 * x
+    x_nuevo = x + dt * v + 0.5 * dt**2 * a
+    a_nueva = -omega**2 * x_nuevo
+    v_nuevo = v + 0.5 * dt * (a + a_nueva)
+    return np.array([x_nuevo, v_nuevo])
+```
+
+La equivalencia también se puede controlar numéricamente: integramos con la
+forma de Störmer, arrancando con el mismo $x_1$, y comparamos las posiciones.
+
+```{python}
+#| label: verlet-equivalencia
+
+def stormer_verlet(x0, v0, dt, n_pasos, omega=1.0):
+    x = np.empty(n_pasos + 1)
+    x[0] = x0
+    x[1] = x0 + v0 * dt - 0.5 * omega**2 * x0 * dt**2
+    for n in range(1, n_pasos):
+        x[n + 1] = 2 * x[n] - x[n - 1] - omega**2 * x[n] * dt**2
+    return x
+
+
+_, y_velocity = integrar(paso_verlet, y0, t_final, dt)
+x_stormer = stormer_verlet(*y0, dt, len(y_velocity) - 1)
+diferencia = np.max(np.abs(x_stormer - y_velocity[:, 0]))
+print(f"máxima diferencia entre posiciones: {diferencia:.1e}")
+```
+
+La diferencia es del orden del redondeo: no son dos métodos distintos, sino
+dos maneras de organizar la misma cuenta.
+
+Verlet es de orden dos, menor que RK4. Sin embargo, respeta propiedades
+geométricas de la dinámica hamiltoniana que resultan importantes al integrar
+durante tiempos muy largos. No conserva exactamente la energía en cada paso:
+su error energético típicamente **oscila sin una deriva sistemática**.
+
+## 5. El experimento decisivo
+
+Comparemos los métodos con más de un observable:
+
+- error contra el tamaño del paso;
+- número de evaluaciones de la fuerza por paso;
+- retrato de fase $(x,v)$;
+- energía contra el tiempo, durante muchos períodos.
+
+```{python}
+#| label: metodos
+
+metodos = [
+    (euler_explicito, "Euler explícito", 1),
+    (euler_implicito, "Euler implícito", 1),
+    (paso_rk2, "RK2", 2),
+    (paso_rk4, "RK4", 4),
+    (paso_verlet, "Verlet", 2),
+]
+```
+
+La tercera columna es el número de evaluaciones de la fuerza por paso. En
+Euler implícito contamos una porque, para este problema lineal, el paso se
+despeja a mano; en general exige resolver una ecuación en cada paso.
+
+### 5.1. Tabla de convergencia
+
+Integramos exactamente un período, $T=2\pi$, de modo que la solución exacta
+vuelve al estado inicial y el error es $e=\max(|x_N-1|,|v_N|)$. Duplicamos
+$N$ en cada fila, así que $\Delta t$ se divide por dos y podemos usar la
+fórmula de la sección 2.1.
+
+**Antes de ejecutar:** según el orden de cada método, ¿por cuánto debería
+dividirse el error de una fila a la siguiente? Con $N=20$, ¿qué método
+esperan que tenga el menor error?
+
+```{python}
+#| label: tabla-convergencia
+
+periodo = 2 * np.pi
+numeros_de_pasos = [20, 40, 80, 160, 320]
+
+for paso, nombre, evaluaciones in metodos:
+    print(f"\n{nombre} (evaluaciones de la fuerza por paso: {evaluaciones})")
+    print(f"{'N':>5} {'dt':>8} {'error':>11} {'p observado':>12}")
+    error_anterior = None
+    for n_pasos in numeros_de_pasos:
+        _, y = integrar(paso, y0, periodo, periodo / n_pasos)
+        error = np.max(np.abs(y[-1] - y0))
+        orden = (
+            f"{np.log2(error_anterior / error):.3f}"
+            if error_anterior is not None else "—"
+        )
+        print(f"{n_pasos:5d} {periodo / n_pasos:8.4f} {error:11.3e} {orden:>12}")
+        error_anterior = error
+```
+
+Dos lecturas de la tabla:
+
+- **El orden:** el $p$ observado se estabiliza cerca de 1, 1, 2, 4 y 2. En las
+  primeras filas de los dos Euler todavía no estamos en el régimen asintótico.
+- **El costo:** para comparar métodos con justicia hay que hacerlo a igual
+  número de evaluaciones de la fuerza. RK4 con $N=20$ hace 80 evaluaciones,
+  igual que Verlet con $N=40$ o Euler con $N=80$. Comparen los tres errores.
+
+### 5.2. Retrato de fase
+
+```{python}
+#| label: fig-fase
+#| fig-cap: "Retrato de fase durante doce períodos con dt = 0.15: estabilidad no equivale a conservación de la dinámica."
+
+fig, ax = plt.subplots(figsize=(5, 5))
+for paso, nombre, _ in metodos:
+    if paso is paso_rk2:
+        continue
+    _, y = integrar(paso, y0, t_final, dt)
+    ax.plot(y[:, 0], y[:, 1], label=nombre)
+
+theta = np.linspace(0, 2 * np.pi, 400)
+ax.plot(np.cos(theta), -np.sin(theta), "k--", lw=1, label="exacta")
+ax.set(xlabel="$x$", ylabel="$v$", aspect="equal", xlim=(-2, 2), ylim=(-2, 2))
+ax.legend()
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Con este paso y doce períodos, RK4 y Verlet se superponen con la órbita
+exacta. ¿Alcanza esta figura para decidir entre ellos?
+
+### 5.3. Energía durante mil períodos
+
+Repetimos la integración con RK4 y Verlet durante mil períodos, con un paso
+más grande, $\Delta t=0.3$, para que las diferencias aparezcan antes.
+
+**Antes de ejecutar:** ¿qué método esperan que termine con menor error de
+energía? ¿Esperan que alguno de los dos errores crezca con el tiempo?
+
+```{python}
+#| label: fig-energia-largo
+#| fig-cap: "Error relativo de energía con dt = 0.3. Izquierda: los tres primeros períodos. Derecha: mil períodos, donde las oscilaciones de Verlet se ven como una banda."
+
+dt_largo = 0.3
+t_largo = 1000 * 2 * np.pi
+periodos_zoom = 3
+
+fig, (zoom, ax) = plt.subplots(
+    1, 2, figsize=(10, 4), layout="constrained", gridspec_kw={"width_ratios": [1, 2]}
+)
+for paso, nombre in [(paso_verlet, "Verlet"), (paso_rk4, "RK4")]:
+    t, y = integrar(paso, y0, t_largo, dt_largo)
+    energia = 0.5 * (y[:, 0] ** 2 + y[:, 1] ** 2)
+    error = energia / energia[0] - 1
+    periodos = t / (2 * np.pi)
+    primeros = periodos <= periodos_zoom
+    zoom.plot(periodos[primeros], error[primeros], ".-", ms=3, lw=0.8, zorder=3, label=nombre)
+    ax.plot(periodos, error, lw=0.8, zorder=3, label=nombre)
+    print(f"{nombre}: error relativo de energía final {error[-1]:+.3e}")
+
+for eje in (zoom, ax):
+    eje.axhline(0, color="black", lw=1, zorder=1)
+    eje.set(xlabel="tiempo [períodos]", ylabel="$(E(t)-E_0)/E_0$")
+    eje.grid(alpha=0.25)
+zoom.set(title=f"Primeros {periodos_zoom} períodos")
+ax.set(title="Mil períodos")
+ax.legend()
+plt.show()
+```
+
+En el panel de la izquierda se ve qué es la banda: el error de Verlet va y
+vuelve entre $0$ y $-\Delta t^2/4$ **dos veces por período**, mientras que el
+de RK4 es casi nulo. Para el oscilador, Verlet conserva exactamente una energía
+levemente modificada, $\tilde E=\tfrac12\left[v^2+(1-\Delta t^2/4)\,x^2\right]$;
+por eso $E$ sólo puede oscilar alrededor de ella, sin alejarse.
+
+En el panel de la derecha, RK4 pierde energía de manera lenta pero
+sistemática: su error crece con el tiempo y supera al de Verlet después de un
+centenar de períodos. El error de Verlet, en cambio, no crece. Cuál de los dos
+conviene depende de la pregunta y del tiempo de integración.
+
+### Discusión en grupos
+
+Elijan y justifiquen un método para cada situación:
+
+1. obtener alta precisión durante diez períodos;
+2. estudiar cualitativamente diez mil períodos;
+3. resolver un oscilador con una fuerza externa dependiente del tiempo;
+4. resolver un sistema fuertemente amortiguado;
+5. comparar resultados cuando no conocemos la solución exacta.
+
+La respuesta no debería ser sólo el nombre del método: debe indicar qué
+evidencia se mediría para decidir si el resultado es confiable.
+
+## 6. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- el orden mide cómo disminuye el error al refinar $\Delta t$;
+- la estabilidad no garantiza fidelidad física;
+- una cantidad conservada ofrece evidencia adicional cuando no tenemos una
+  solución exacta;
+- RK4 prioriza precisión general y Verlet la estructura de ciertos sistemas
+  mecánicos;
+- ningún gráfico aislado valida una simulación.
+
+No podemos concluir que:
+
+- el método de mayor orden sea siempre la mejor elección;
+- una energía casi constante demuestre que todo el cálculo es correcto;
+- observar la pendiente esperada con sólo dos pasos demuestre convergencia;
+- un test que pasa valide casos físicos que el test no representa.
+
+### Puente con el TP 02
+
+En el [TP 02](../TPs/02-oscilador-recargado/index.md) van a trabajar como
+desarrolladores y auditores:
+
+1. implementar y probar Velocity Verlet;
+2. examinar informes numéricos plausibles pero potencialmente incorrectos;
+3. convertir los controles de esa auditoría en tests;
+4. comparar RK4 y Verlet en el péndulo no lineal, a tiempos largos;
+5. usar el historial de Git para dejar evidencia de cada diagnóstico y
+   corrección.
+
+La pregunta de salida es la misma que al comienzo, pero ahora exige criterios
+operativos:
+
+> **¿Qué observaciones concretas nos harían confiar —o desconfiar— de esta
+> simulación?**

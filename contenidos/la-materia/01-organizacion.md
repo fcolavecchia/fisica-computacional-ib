@@ -65,23 +65,24 @@ Las clases son talleres hands-on de cuatro horas. A partir de la introducción d
 
 Pueden ser más prácticos dependiendo de cómo vamos.
 
-| Clase | Pregunta o actividad                                    | Producto                              |
-| ----: | ------------------------------------------------------- | ------------------------------------- |
-|     1 | ¿Cuándo creemos una simulación?                         | Diagnóstico, no evaluado              |
-|     2 | Leer, modificar, probar y versionar un oscilador con IA | Primer paquete de afirmación          |
-|     3 | Formular una colisión clásica y recuperar Rutherford    | Modelo y predicciones                 |
-|     4 | ¿Podemos confiar en las trayectorias?                   | Suite de evaluadores                  |
-|     5 | ¿Qué potencial produjo estos ángulos?                   | Hipótesis discriminantes              |
-|     6 | Caja negra y cierre del práctico                        | **Trabajo práctico 1: colisiones**    |
-|     7 | Construir un Hamiltoniano discretizado                  | Solver cuántico inicial               |
-|     8 | ¿Los estados calculados son físicos?                    | Validación del solver                 |
-|     9 | ¿Qué potencial produjo este espectro?                   | **Trabajo práctico 2: cuántica**      |
-|    10 | ¿Qué debe respetar una simulación de fluidos?           | Ejecución del solver dado             |
-|    11 | El vórtice de Taylor–Green como referencia              | Auditoría del solver                  |
-|    12 | ¿La disipación es física o numérica?                    | **Trabajo práctico 3: fluidos**       |
-|    13 | ¿Qué significa una barra de error Monte Carlo?          | Monte Carlo variacional del hidrógeno |
-|    14 | Extender una conclusión y ponerla a prueba              | **Trabajo práctico final**            |
-|    15 | Defensa con IA y síntesis                               | Evaluación individual                 |
+| Clase | Bloque     | Tema                                                      |
+| ----: | ---------- | --------------------------------------------------------- |
+|     0 | EDO        | De Newton a Navier–Stokes; método de Euler                |
+|     1 | EDO        | Euler implícito y Newton–Raphson                          |
+|     2 | EDO        | Orden, estabilidad y estructura: Runge–Kutta y Verlet     |
+|     3 | Partículas | Colisiones y dispersión de Rutherford                     |
+|     4 | Partículas | Tres cuerpos y N cuerpos gravitatorios                    |
+|     5 | Partículas | Dinámica molecular                                        |
+|     6 | Azar       | Monte Carlo y Metropolis                                  |
+|     7 | Azar       | Cadenas de Markov y modelos de agentes                    |
+|     8 | Campos     | Ecuación de difusión y FTCS                               |
+|     9 | Campos     | Reacción-difusión en dos dimensiones                      |
+|    10 | Cuántica   | Schrödinger independiente del tiempo                      |
+|    11 | Cuántica   | Schrödinger dependiente del tiempo y colisiones cuánticas |
+
+La clase de cierre y el examen se agendan aparte. Precisión numérica, números
+pseudoaleatorios y el modelo de Ising quedan como material de consulta, sin
+clase propia.
 
 Las fechas se confirman al comenzar la cursada. El material de cada
 trabajo práctico está en [Trabajos prácticos](../TPs/index.md).
