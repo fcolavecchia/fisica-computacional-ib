@@ -28,6 +28,8 @@ limitaciones.
 
 Los enlaces a los repositorios de trabajo aparecen en la página de cada
 actividad. En la actividad inicial y el TP 01, cada estudiante crea un
-repositorio privado a partir del template público. Desde el TP 02, cada grupo
-trabaja en un repositorio privado compartido con la cátedra; los docentes
-envían el enlace y las invitaciones a sus integrantes.
+repositorio privado a partir del template público. En el TP 02, también
+individual, la cátedra crea un repositorio privado para cada estudiante, con
+acceso del equipo docente. Desde el TP 03, cada grupo trabaja en un
+repositorio privado compartido con la cátedra. En los dos casos los docentes
+envían el enlace y las invitaciones.

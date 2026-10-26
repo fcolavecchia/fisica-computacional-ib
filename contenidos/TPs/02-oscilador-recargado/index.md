@@ -13,10 +13,11 @@ Euler, RK4, el péndulo no lineal y herramientas de análisis. La pregunta es:
 
 ## Repositorio
 
-La cátedra les enviará el enlace a su repositorio privado de grupo. Acepten la
-invitación de GitHub y clónenlo desde ese enlace. Todas las personas del grupo
-y el equipo docente trabajan sobre el mismo repositorio; no creen una copia
-desde un template.
+Este práctico es **individual**. La cátedra crea un repositorio privado para
+cada estudiante, `fiscom-2026-02-oscilador-recargado-<usuario>`, y les envía
+una invitación de GitHub. Acéptenla y clonen el repositorio desde ese enlace.
+El equipo docente tiene acceso para seguir y revisar el trabajo; no creen una
+copia desde un template.
 
 :::
 
