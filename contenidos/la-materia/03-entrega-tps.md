@@ -5,7 +5,7 @@ title: "Paquete de afirmación"
 Lo que se entrega en cada trabajo práctico no es un notebook terminado. Es una
 **afirmación computacional auditable**: una conclusión acotada, la evidencia
 que la sostiene y todo lo necesario para que otra persona la regenere y la
-ataque.
+cuestione.
 
 ## Estructura del repositorio
 
