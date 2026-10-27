@@ -645,7 +645,7 @@ Descartando el término en $\Delta t^4$,
 
 $$
 \boxed{x_{n+1}=2x_n-x_{n-1}+a_n\,\Delta t^2}
-\qquad\text{con defecto } \tau_n=\frac1{12}x^{(4)}\Delta t^4=O(\Delta t^4).
+\qquad\text{con término descartado } \tau_n=\frac1{12}x^{(4)}\Delta t^4=O(\Delta t^4).
 $$
 
 Ésta es la forma original del método, llamada de **Störmer–Verlet** o de
@@ -668,7 +668,9 @@ $$
 
 **Orden global.** La cuenta anterior tiene un término descartado de orden
 $\Delta t^4$, pero Störmer no avanza el estado con una sola suma como Euler:
-su lado izquierdo es una **segunda diferencia**. Al dividir la fórmula por
+su lado izquierdo es una **segunda diferencia**. Por eso $\tau_n$ **no** es
+un error local en el sentido de la sección 2.1, y la regla "error local
+$O(\Delta t^{p+1})$, error global $O(\Delta t^p)$" no se aplica. Al dividir la fórmula por
 $\Delta t^2$ se lee como una aproximación de la aceleración,
 
 $$
