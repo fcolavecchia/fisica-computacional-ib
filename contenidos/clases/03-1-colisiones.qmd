@@ -1,0 +1,941 @@
+---
+title: "Colisiones y dispersión de Rutherford"
+subtitle: "Física Computacional 2026"
+fecha: a definir
+# Esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/03-1-colisiones.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/03-1-colisiones.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** ¿Qué ángulo de dispersión produce un potencial
+> central, y cómo sabemos que la trayectoria calculada es la correcta? ¿Cómo se
+> pasa de ese ángulo a lo que mide un experimento?
+
+En la clase anterior integramos un oscilador durante miles de períodos. Una
+colisión es el problema opuesto: la partícula pasa **una sola vez**, casi todo
+el tiempo lejos del centro y durante un instante muy cerca. Al terminar
+podremos integrar una colisión con paso adaptativo y eventos, decidir cuán lejos
+queda "el infinito", y obtener la sección eficaz diferencial de dos maneras
+independientes.
+
+```{python}
+#| label: imports
+#| include: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import solve_ivp
+```
+
+## 1. El problema físico
+
+### 1.1. De dos cuerpos a uno
+
+Dos partículas de masas $m_1$ y $m_2$ interactúan con un potencial que sólo
+depende de la distancia entre ellas, $V(|\mathbf r_1-\mathbf r_2|)$. Con la
+coordenada relativa $\mathbf r=\mathbf r_1-\mathbf r_2$ y la **masa reducida**
+
+$$
+\mu=\frac{m_1m_2}{m_1+m_2},
+$$
+
+el centro de masa se mueve con velocidad constante y el movimiento relativo es
+el de **una** partícula de masa $\mu$ en el potencial fijo $V(r)$:
+
+$$
+\mu\,\ddot{\mathbf r}=-\nabla V(r)=F(r)\,\hat{\mathbf r},
+\qquad F(r)=-\frac{dV}{dr}.
+$$
+
+Todo lo que sigue se calcula primero en el **sistema del centro de masa**. Un
+detector fijo mide en el **laboratorio**, donde el blanco está inicialmente en
+reposo. Si llamamos $\theta$ al ángulo no orientado en el centro de masa, para
+un choque elástico vale
+
+$$
+\tan\theta_{\text{lab}}=\frac{\sin\theta}{\cos\theta+m_1/m_2}.
+$$
+
+Si el blanco es mucho más pesado que el proyectil, $m_1/m_2\to0$ y los dos
+ángulos coinciden.
+
+Para calcular $\theta_{\text{lab}}$ no alcanza con `arctan`: la tangente sólo
+fija el ángulo a menos de $\pi$, y `arctan` devuelve valores entre $-\pi/2$ y
+$\pi/2$. Cuando el denominador es negativo, la partícula sale hacia atrás
+($\theta_{\text{lab}}>\pi/2$) y `arctan` da un ángulo equivocado.
+
+`np.arctan2(y, x)` recibe el numerador y el denominador **por separado** y
+devuelve el ángulo del vector $(x,y)$ en $(-\pi,\pi]$, eligiendo el cuadrante
+por los signos de $x$ e $y$:
+
+$$
+\theta_{\text{lab}}=\operatorname{atan2}\!\left(\sin\theta,\;\cos\theta+\frac{m_1}{m_2}\right).
+$$
+
+Como $\sin\theta\ge0$, el resultado queda en $[0,\pi]$. Además, ese vector es
+justamente la dirección de la velocidad final en el laboratorio, como muestra
+la construcción que sigue.
+
+La fórmula sale de sumar velocidades en el plano de la colisión, con $x$ en la
+dirección del haz. El proyectil llega con velocidad $v\,\hat{\mathbf x}$ y el
+blanco está quieto, así que el centro de masa se mueve con
+
+$$
+\mathbf V=\frac{m_1}{m_1+m_2}\,v\,\hat{\mathbf x}.
+$$
+
+En el centro de masa, el proyectil tiene velocidad
+$\mathbf u=v\,\hat{\mathbf x}-\mathbf V=u\,\hat{\mathbf x}$, con
+$u=\frac{m_2}{m_1+m_2}v$. El choque elástico conserva su módulo y sólo la gira
+un ángulo $\theta$:
+
+$$
+\mathbf u'=u\,(\cos\theta,\ \sin\theta).
+$$
+
+De vuelta en el laboratorio, la velocidad final es
+
+$$
+\mathbf v_{\text{lab}}=\mathbf V+\mathbf u'=\big(V+u\cos\theta,\ u\sin\theta\big).
+$$
+
+Dividiendo las dos componentes por $u$, y como $V/u=m_1/m_2$, se obtiene la
+fórmula de $\tan\theta_{\text{lab}}$. En la figura, la punta de $\mathbf u'$
+recorre un círculo de radio $u$ centrado en $\mathbf V$ cuando $\theta$ varía.
+
+```{python}
+#| label: cinematica-laboratorio
+
+# Velocidades en unidades de la velocidad incidente en el laboratorio.
+cociente, theta = 0.5, np.radians(110)
+V, u = cociente / (1 + cociente), 1 / (1 + cociente)
+final = np.array([V + u * np.cos(theta), u * np.sin(theta)])
+theta_lab = np.arctan2(final[1], final[0])
+
+angulos_cm = np.linspace(0, np.pi, 400, endpoint=False)
+angulos_lab = {c: np.arctan2(np.sin(angulos_cm), np.cos(angulos_cm) + c) for c in (0, 0.5, 1, 2)}
+```
+
+```{python}
+#| label: fig-laboratorio
+#| fig-cap: "Izquierda: velocidad final del proyectil en el laboratorio, v_lab = V + u′, para m₁/m₂ = 1/2 y θ = 110°; las velocidades están en unidades de v. Derecha: ángulo en el laboratorio en función del ángulo en el centro de masa."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.2))
+circulo = np.linspace(0, 2 * np.pi, 200)
+ax1.plot(V + u * np.cos(circulo), u * np.sin(circulo), color="0.7", lw=0.8)
+ax1.axhline(0, color="black", lw=0.5)
+for origen, punta, color, nombre, lugar in [
+    ((0, 0), (V, 0), "C0", "$\\mathbf{V}$", (0.5 * V, -0.08)),
+    ((V, 0), final, "C1", "$\\mathbf{u}'$", (0.5 * (V + final[0]) + 0.07, 0.5 * final[1])),
+    ((0, 0), final, "C2", "$\\mathbf{v}_{\\mathrm{lab}}$", (0.5 * final[0] - 0.12, 0.5 * final[1])),
+]:
+    ax1.annotate("", punta, origen, arrowprops=dict(arrowstyle="-|>", color=color, lw=1.5))
+    ax1.text(*lugar, nombre, color=color, ha="center", va="center")
+for centro, radio, angulo, nombre in [((V, 0), 0.1, theta, "$\\theta$"), ((0, 0), 0.2, theta_lab, "$\\theta_{\\mathrm{lab}}$")]:
+    arco = np.linspace(0, angulo, 50)
+    ax1.plot(centro[0] + radio * np.cos(arco), radio * np.sin(arco), color="black", lw=0.8)
+    ax1.text(centro[0] + 1.6 * radio * np.cos(angulo / 2), 1.6 * radio * np.sin(angulo / 2), nombre,
+             ha="center", va="center")
+ax1.set(xlabel="$v_x/v$", ylabel="$v_y/v$", aspect="equal", xlim=(-0.4, 1.1), ylim=(-0.75, 0.8))
+
+for c, lab in angulos_lab.items():
+    ax2.plot(np.degrees(angulos_cm), np.degrees(lab), label=f"$m_1/m_2$ = {c:g}")
+ax2.set(xlabel="$\\theta$ (grados)", ylabel="$\\theta_{\\mathrm{lab}}$ (grados)", xlim=(0, 180), ylim=(0, 180))
+ax2.legend()
+ax2.grid(alpha=0.25)
+plt.show()
+```
+
+Con $m_1<m_2$ el origen queda dentro del círculo y cada $\theta$ da un
+$\theta_{\text{lab}}$ distinto. Si $m_1>m_2$, hay un ángulo máximo en el
+laboratorio y, por debajo de él, dos ángulos del centro de masa pueden dar el
+mismo ángulo del laboratorio.
+
+La sección eficaz tampoco es la misma función en ambos sistemas. Con
+$x=m_1/m_2$, cada rama se transforma como
+
+$$
+\left.\frac{d\sigma}{d\Omega}\right|_{\rm lab}
+=\left.\frac{d\sigma}{d\Omega}\right|_{\rm cm}
+\frac{\left(1+2x\cos\theta+x^2\right)^{3/2}}
+{\left|1+x\cos\theta\right|}.
+$$
+
+Para $m_1>m_2$ hay que sumar las contribuciones de las dos ramas que llegan al
+mismo $\theta_{\rm lab}$. También cambia la energía: si el blanco está en
+reposo, $E_{\rm cm}=m_2E_{\rm lab}/(m_1+m_2)$. En lo que sigue, salvo que se
+indique lo contrario, $\Theta$ y $d\sigma/d\Omega$ están expresados en el
+centro de masa.
+
+### 1.2. Cantidades conservadas
+
+La fuerza es central, así que se conservan la energía y el momento angular:
+
+$$
+E=\frac12\mu v^2+V(r),\qquad \mathbf L=\mu\,\mathbf r\times\mathbf v .
+$$
+
+Como $\mathbf L$ es constante, el movimiento ocurre en el plano perpendicular a
+$\mathbf L$. Desde acá usamos $\mu=1$: la energía cinética es $v^2/2$.
+
+### 1.3. Parámetro de impacto y ángulo de dispersión
+
+La partícula llega desde $x=-\infty$ moviéndose hacia $+x$, con velocidad
+$v_\infty=\sqrt{2E}$ y desplazada una distancia $b$, el **parámetro de
+impacto**, respecto de la recta que pasa por el centro. Entonces
+$|L|=b\sqrt{2E}$.
+
+Después del choque se aleja en otra dirección. El **ángulo de dispersión**
+$\chi(b)$ es el ángulo entre la velocidad final y la inicial. Lo tomamos
+positivo si la partícula se aleja del centro y negativo si se desvía hacia él.
+Con potenciales atractivos puede ser menor que $-\pi$: la partícula da una
+vuelta. Un detector no distingue vueltas ni lados: mide
+
+$$
+\Theta=\arccos(\cos\chi)\in[0,\pi].
+$$
+
+La función $\chi(b)$ se llama **función de dispersión** y contiene toda la
+física clásica de la colisión.
+
+Quedan tres símbolos para ángulos en el centro de masa:
+
+- $\chi$: el ángulo **con signo**, que indica de qué lado pasó la partícula y
+  puede superar $\pi$ si da vueltas;
+- $\Theta$: el que registra un detector, siempre entre $0$ y $\pi$;
+- $\theta$, de la sección 1.1: es el mismo $\Theta$. Si no hay vueltas,
+  $\theta=\Theta=|\chi|$.
+
+```{python}
+#| label: hiperbola
+
+# Hipérbola de Coulomb repulsivo con μ = k = E = 1, de modo que d = 1.
+b = 1.0
+chi = 2 * np.arctan(1 / (2 * b))
+excentricidad = np.sqrt(1 + 4 * b**2)
+periapsis = np.pi / 2 + chi / 2          # dirección del punto de máximo acercamiento
+r_min = (1 + excentricidad) / 2
+phi = np.linspace(chi, np.pi, 400)[1:-1]
+r = 2 * b**2 / (excentricidad * np.cos(phi - periapsis) - 1)
+x, y = r * np.cos(phi), r * np.sin(phi)
+cruce = np.array([b / np.tan(periapsis), b])  # donde se cortan las asíntotas
+punto = r_min * np.array([np.cos(periapsis), np.sin(periapsis)])
+```
+
+```{python}
+#| label: fig-geometria
+#| fig-cap: "Una trayectoria en un potencial central repulsivo (Coulomb, con b = d). La recta de trazos es la asíntota de entrada; la de puntos, la de salida."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(7, 5))
+ax.plot(x, y, color="C0", lw=2)
+ax.plot([-6, cruce[0]], [b, b], "k--", lw=0.8)
+ax.plot([cruce[0], 4], [b, b], color="0.6", ls="--", lw=0.8)
+ax.plot(*np.transpose([cruce, cruce + 8 * np.array([np.cos(chi), np.sin(chi)])]), "k:", lw=0.8)
+ax.annotate("", (-3.8, b + 0.4), (-5, b + 0.4), arrowprops=dict(arrowstyle="-|>", color="C0", lw=1.5))
+ax.text(-4.4, b + 0.6, "$v_\\infty$", color="C0", ha="center")
+
+ax.axhline(0, color="0.6", lw=0.5)
+ax.annotate("", (-5.5, b), (-5.5, 0), arrowprops=dict(arrowstyle="<->", lw=1))
+ax.text(-5.35, b / 2, "$b$", va="center")
+
+arco = np.linspace(0, chi, 50)
+ax.plot(cruce[0] + 1.5 * np.cos(arco), b + 1.5 * np.sin(arco), color="C3", lw=1)
+ax.text(cruce[0] + 1.8 * np.cos(chi / 2), b + 1.8 * np.sin(chi / 2), "$\\chi$", color="C3", va="center")
+
+ax.plot([0, punto[0]], [0, punto[1]], color="C2", lw=1)
+ax.text(*(0.5 * punto + [-0.25, 0.0]), "$r_{\\min}$", color="C2", ha="right", va="center")
+ax.plot(0, 0, "k*", ms=12)
+ax.set(xlabel="$x/d$", ylabel="$y/d$", aspect="equal", xlim=(-6, 4), ylim=(-1, 4.5))
+plt.show()
+```
+
+En la figura:
+
+- la partícula llega paralela al eje $x$ con rapidez $v_\infty$, a distancia
+  $b$ del centro;
+- $\chi$ es el ángulo entre la asíntota de entrada y la de salida;
+- $r_{\min}$ es la **distancia de máximo acercamiento**: depende de $b$, y
+  ahí la velocidad es perpendicular al radio;
+- la órbita es simétrica respecto de la recta que une el centro con ese punto.
+
+## 2. Escalas
+
+Para Coulomb, $V=k/r$, un choque frontal ($b=0$) se detiene donde toda la
+energía es potencial:
+
+$$
+d=\frac{k}{E}.
+$$
+
+Es la distancia de máximo acercamiento del choque frontal, $d=r_{\min}(b=0)$,
+y la usamos como unidad de longitud. Con $\mu=1$, $k=1$ y $E=1$, el único parámetro que queda es $b/d$.
+
+Un potencial con una longitud propia agrega un segundo número. Para el Coulomb
+apantallado o **Yukawa**,
+
+$$
+V(r)=\frac{k\,e^{-r/a}}{r},
+$$
+
+la física depende de $b/d$ y de $a/d$. Cuando $a\to\infty$ se recupera
+Coulomb.
+
+Los dos son repulsivos si $k>0$. Para tener un pozo usamos el potencial de
+**Lennard-Jones**, el de la interacción entre dos átomos neutros:
+
+$$
+V(r)=4\varepsilon\left[\left(\frac{\sigma}{r}\right)^{12}-\left(\frac{\sigma}{r}\right)^{6}\right].
+$$
+
+- El término $r^{-12}$ es un **carozo** repulsivo; el $r^{-6}$, una atracción
+  de largo alcance.
+- $\sigma$ es la distancia donde $V=0$, y $\varepsilon$ la profundidad del
+  pozo, cuyo mínimo está en $r=2^{1/6}\sigma$.
+- Acá no hay un $d$: las escalas naturales son $\sigma$ y $\varepsilon$, y la
+  física depende de $b/\sigma$ y de $E/\varepsilon$.
+
+**Antes de calcular**, hagan dos predicciones para Coulomb repulsivo:
+
+1. ¿Qué ángulo esperan con $b=0$?
+2. ¿Y con $b\gg d$? ¿Cómo debería depender $\chi$ de $b$ en ese límite?
+
+## 3. Formulación computacional
+
+### 3.1. Estado, condición inicial y criterio de parada
+
+El estado es $y=[x,\,y,\,v_x,\,v_y]$. "Infinito" se reemplaza por una esfera de
+radio $R_0$: la partícula arranca sobre ella con velocidad $\sqrt{2E}$ según
+$+x$, y la integración termina cuando vuelve a cruzarla **hacia afuera**.
+
+`solve_ivp` detecta ese cruce con un **evento**: una función que se anula en el
+instante buscado. Con `terminal = True` la integración se detiene ahí, y con
+`direction = 1` sólo cuentan los cruces en que la función pasa de negativa a
+positiva.
+
+::: {.callout-note title="`solve_ivp`, de SciPy"}
+[`scipy.integrate.solve_ivp`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.integrate.solve_ivp.html)
+resuelve problemas de valores iniciales $\dot y=f(t,y)$, $y(t_0)=y_0$:
+
+```python
+sol = solve_ivp(f, (t0, t_final), y0, method="DOP853", rtol=1e-10, atol=1e-12, events=evento)
+```
+
+- `f(t, y)` devuelve la derivada del estado; `y0` es el estado inicial.
+- `method` elige el integrador: `RK45` (por defecto) y `DOP853` son
+  Runge-Kutta explícitos con paso adaptativo; `Radau`, `BDF` y `LSODA` son
+  implícitos, para problemas rígidos.
+- `rtol` y `atol` fijan el error tolerado **por paso**.
+- `events` recibe una o varias funciones cuyos ceros hay que detectar.
+- Devuelve un objeto con `sol.t`, `sol.y` (una fila por componente),
+  `sol.t_events`, `sol.nfev` (evaluaciones de `f`) y `sol.status`.
+:::
+
+Cada potencial de la sección 2 es una clase con dos métodos: `V(r)` y la
+fuerza radial `F(r)` $=-dV/dr$. La integración sólo usa `F`; `V` sirve para
+controlar la energía.
+
+```{python}
+#| label: potenciales
+
+class Yukawa:
+    """V = k e^(−r/a) / r. Con a = inf es Coulomb."""
+
+    def __init__(self, k=1.0, a=np.inf):
+        self.k, self.a = k, a
+
+    def V(self, r):
+        return self.k * np.exp(-r / self.a) / r
+
+    def F(self, r):
+        return self.k * np.exp(-r / self.a) * (1 / r**2 + 1 / (self.a * r))
+
+
+class LennardJones:
+    """V = 4ε [(σ/r)¹² − (σ/r)⁶]."""
+
+    def __init__(self, epsilon=1.0, sigma=1.0):
+        self.epsilon, self.sigma = epsilon, sigma
+
+    def V(self, r):
+        s6 = (self.sigma / r) ** 6
+        return 4 * self.epsilon * (s6**2 - s6)
+
+    def F(self, r):
+        s6 = (self.sigma / r) ** 6
+        return 24 * self.epsilon * (2 * s6**2 - s6) / r
+```
+
+```{python}
+#| label: trayectoria
+
+def trayectoria(potencial, E, b, R0, rtol=1e-10, atol=1e-12):
+    """Integra desde la esfera de radio R0 hasta que la partícula vuelve a cruzarla."""
+
+    if not 0 <= b < R0:
+        raise ValueError("hace falta 0 ≤ b < R0")
+    y0 = [-np.sqrt(R0**2 - b**2), b, np.sqrt(2 * E), 0.0]
+
+    def derivada(t, y):
+        r = np.hypot(y[0], y[1])
+        g = potencial.F(r) / r
+        return [y[2], y[3], g * y[0], g * y[1]]
+
+    def salida(t, y):
+        return np.hypot(y[0], y[1]) - R0
+
+    salida.terminal = True
+    salida.direction = 1
+    t_max = 40 * R0 / np.sqrt(2 * E)
+    solucion = solve_ivp(derivada, (0, t_max), y0, method="DOP853", rtol=rtol, atol=atol, events=salida)
+    if solucion.status != 1:
+        raise RuntimeError("la partícula no salió antes de t_max: χ no está definido")
+    return solucion
+
+
+def deflexion(solucion):
+    """χ: el ángulo de la velocidad, seguido de manera continua hasta la salida."""
+
+    return np.unwrap(np.arctan2(solucion.y[3], solucion.y[2]))[-1]
+```
+
+`arctan2` devuelve ángulos en $(-\pi,\pi]$, así que no puede representar una
+vuelta: si la velocidad gira más allá de $-\pi$, el ángulo salta en $2\pi$.
+`np.unwrap` sigue el ángulo paso a paso y deshace esos saltos, de modo que
+`deflexion` devuelve $\chi$ sin recortar. El ángulo observado
+$\Theta=\arccos(\cos\chi)\in[0,\pi]$ se calcula después, a partir de $\chi$.
+
+Acá $E$ significa la energía cinética **asintótica**. Al empezar en $R_0$ con
+velocidad $\sqrt{2E}$, la energía total inicial es $E+V(R_0)$: ése es parte del
+error de dominio finito que medimos más abajo. El chequeo de energía controla
+que el integrador conserve el problema numérico planteado, no que ese problema
+sea ya el de $r=\infty$.
+
+```{python}
+#| label: abanico
+
+yukawa = Yukawa(k=1.0, a=1.0)
+abanico = [trayectoria(yukawa, E=1.0, b=b, R0=8.0) for b in np.linspace(0.05, 3.0, 15)]
+```
+
+```{python}
+#| label: fig-abanico
+#| fig-cap: "Trayectorias en un potencial de Yukawa con a = d, para parámetros de impacto equiespaciados."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6, 6))
+for sol in abanico:
+    ax.plot(sol.y[0], sol.y[1], lw=0.8)
+ax.plot(0, 0, "k*", ms=10)
+ax.set(xlabel="$x/d$", ylabel="$y/d$", aspect="equal", xlim=(-8, 8), ylim=(-8, 8))
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+### 3.2. Primer control: lo que se conserva
+
+Antes de mirar ángulos, controlamos que la trayectoria pertenezca al problema
+que planteamos: la energía y el momento angular tienen que quedar constantes.
+
+```{python}
+#| label: conservacion
+
+for b in (0.1, 1.0, 3.0):
+    sol = trayectoria(yukawa, E=1.0, b=b, R0=30.0)
+    x, y, vx, vy = sol.y
+    energia = 0.5 * (vx**2 + vy**2) + yukawa.V(np.hypot(x, y))
+    momento = x * vy - y * vx
+    print(
+        f"b = {b:3.1f}: |ΔE/E| máx = {np.max(np.abs(energia / energia[0] - 1)):.1e}, "
+        f"|ΔL/L| máx = {np.max(np.abs(momento / momento[0] - 1)):.1e}, "
+        f"χ = {np.degrees(deflexion(sol)):7.3f}°, evaluaciones = {sol.nfev}"
+    )
+```
+
+Conservar $E$ y $L$ es necesario, pero no suficiente: un ángulo puede estar mal
+aunque las dos cantidades se conserven, por ejemplo si el dominio es demasiado
+chico.
+
+### 3.3. ¿Cuán lejos es infinito?
+
+Arrancar en $R_0$ supone que ahí el potencial ya no actúa. Con Yukawa el
+potencial cae como $e^{-r/a}$; con Coulomb, sólo como $1/r$.
+
+**Antes de ejecutar:** si duplicamos $R_0$, ¿por cuánto esperan que se reduzca
+el error del ángulo en cada caso?
+
+```{python}
+#| label: dominio
+
+def tabla_dominio(potencial, b, radios, referencia):
+    for R0 in radios:
+        chi = deflexion(trayectoria(potencial, 1.0, b, R0))
+        print(f"   R0 = {R0:5.0f} d: χ − referencia = {chi - referencia:+.2e} rad")
+
+
+print("Yukawa, a = d, b = d (referencia: R0 = 80 d)")
+referencia = deflexion(trayectoria(yukawa, 1.0, 1.0, 80.0))
+tabla_dominio(yukawa, 1.0, [5, 10, 20, 40], referencia)
+
+coulomb = Yukawa(k=1.0)
+b = 0.5
+exacto = 2 * np.arctan(1 / (2 * b))
+print(f"\nCoulomb, b = d/2 (referencia: la hipérbola, χ = {np.degrees(exacto):.0f}°)")
+tabla_dominio(coulomb, b, [10, 20, 50, 100, 200, 400], exacto)
+```
+
+Con Yukawa, a partir de unas decenas de $a$ el truncamiento queda por debajo de
+la tolerancia elegida: para ese objetivo numérico, el infinito queda
+**efectivamente** a distancia finita. El potencial no se anula exactamente.
+Con Coulomb el error cae lentamente y no hay un $R_0$ a partir del cual
+desaparezca.
+
+Para la hipérbola de Coulomb hay una fórmula cerrada,
+
+$$
+\chi(b)=2\arctan\frac{d}{2b},
+$$
+
+que nos dio la referencia de la tabla. Queda abierta una pregunta: ¿el error
+relativo por dominio finito es el mismo en todos los ángulos?
+
+## 4. Paso fijo frente a paso adaptativo
+
+En la clase 02, Verlet ganaba a tiempos largos porque no acumula error de
+energía. En una colisión no hay tiempos largos: hay una sola pasada, con una
+escala de tiempo muy corta cerca del centro y muy larga lejos.
+
+```{python}
+#| label: pasos
+
+sol = trayectoria(coulomb, E=1.0, b=0.1, R0=50.0)
+r = np.hypot(sol.y[0], sol.y[1])
+paso = np.diff(sol.t)
+print(f"pasos: {len(sol.t) - 1}, evaluaciones de la fuerza: {sol.nfev}")
+```
+
+```{python}
+#| label: fig-pasos
+#| fig-cap: "Tamaño del paso de DOP853 a lo largo de una colisión casi frontal con Coulomb."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(7, 3.5))
+ax.loglog(r[:-1], paso, ".", ms=3)
+ax.set(xlabel="$r/d$ al comienzo del paso", ylabel="paso $\\Delta t$")
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+El paso es unas cuarenta veces más chico cerca del máximo acercamiento que
+lejos del centro. Un paso fijo tiene que ser tan chico como el más
+chico de éstos durante toda la trayectoria.
+
+```{python}
+#| label: verlet-contra-adaptativo
+
+def verlet_colision(potencial, E, b, R0, dt):
+    """Verlet de velocidades con paso fijo; devuelve χ y el número de evaluaciones."""
+
+    x = np.array([-np.sqrt(R0**2 - b**2), b])
+    v = np.array([np.sqrt(2 * E), 0.0])
+    r = np.hypot(*x)
+    a = potencial.F(r) / r * x
+    evaluaciones, angulo, previo = 1, 0.0, 0.0
+    while True:
+        x = x + dt * v + 0.5 * dt**2 * a
+        r = np.hypot(*x)
+        a_nueva = potencial.F(r) / r * x
+        v = v + 0.5 * dt * (a + a_nueva)
+        a = a_nueva
+        evaluaciones += 1
+        actual = np.arctan2(v[1], v[0])
+        angulo += np.angle(np.exp(1j * (actual - previo)))
+        previo = actual
+        if r > R0 and x @ v > 0:
+            return angulo, evaluaciones
+
+
+E, b, R0 = 1.0, 0.2, 20.0
+referencia = deflexion(trayectoria(yukawa, E, b, R0, rtol=1e-13, atol=1e-14))
+print(f"{'método':<22} {'evaluaciones':>12} {'error de χ':>12}")
+for dt in (0.04, 0.02, 0.01, 0.005):
+    chi, n = verlet_colision(yukawa, E, b, R0, dt)
+    print(f"{'Verlet, dt = ' + str(dt):<22} {n:12d} {abs(chi - referencia):12.1e}")
+for rtol in (1e-6, 1e-8, 1e-10):
+    sol = trayectoria(yukawa, E, b, R0, rtol=rtol, atol=rtol * 1e-2)
+    print(f"{'DOP853, rtol = ' + f'{rtol:g}':<22} {sol.nfev:12d} {abs(deflexion(sol) - referencia):12.1e}")
+```
+
+Lean la tabla como en la clase 02, a igual costo:
+
+- **Verlet** es de orden dos: el error cae cuatro veces al dividir el paso por
+  dos. Para ganar un orden de magnitud hay que triplicar las evaluaciones.
+- **DOP853** es de orden ocho con control de paso. Con un número de
+  evaluaciones parecido gana varios órdenes de magnitud.
+- Lo que se pierde al dejar Verlet, la estructura simpléctica, no importa en
+  una sola pasada. Lo que se gana, concentrar el esfuerzo cerca del centro, es
+  lo que importa.
+
+`rtol` controla el error **por paso** relativo al tamaño del estado. No
+controla el error por cortar el dominio en $R_0$: ése lo tenemos que estimar
+nosotros.
+
+## 5. Un método independiente: la cuadratura de la órbita
+
+La energía y el momento angular alcanzan para escribir $\chi(b)$ sin integrar
+en el tiempo. En coordenadas polares, con $L=b\sqrt{2E}$,
+
+$$
+E=\frac12\dot r^2+\frac{L^2}{2r^2}+V(r),
+\qquad
+\dot\varphi=\frac{L}{r^2}.
+$$
+
+Dividiendo, $d\varphi/dr=\dot\varphi/\dot r$, y usando la simetría de la órbita
+respecto del punto de máximo acercamiento,
+
+$$
+\chi(b)=\pi-2b\int_{r_{\min}}^{\infty}\frac{dr}{r^2\sqrt{F(r)}},
+\qquad
+F(r)=1-\frac{V(r)}{E}-\frac{b^2}{r^2}.
+$$
+
+La distancia de máximo acercamiento $r_{\min}$ es la mayor raíz de $F$: ahí
+$\dot r=0$ y la partícula da la vuelta, por eso también se la llama **punto de
+retorno**.
+
+- La fórmula supone una órbita no ligada, con $E>0$, que llega desde y vuelve a
+  infinito; una trayectoria capturada no tiene este ángulo de salida.
+- La integral llega hasta infinito: **no hay dominio finito**.
+- No hay paso temporal: el error lo controla la cuadratura.
+- El integrando diverge en $r_{\min}$ como $1/\sqrt{r-r_{\min}}$. La
+  divergencia es integrable, pero hay que tratarla antes de dársela a una
+  rutina de cuadratura.
+
+Tenemos así dos métodos con discretizaciones distintas. Si dan el mismo ángulo,
+el acuerdo es evidencia contra errores propios del paso temporal o de la
+cuadratura, pero no valida supuestos que ambos comparten —el potencial, sus
+parámetros o las unidades—. Implementar la cuadratura es la primera parte del
+[TP 03](../TPs/03-dispersion/index.md).
+
+## 6. De la trayectoria a la sección eficaz
+
+### 6.1. Lo que se mide
+
+Un experimento no mide $\chi(b)$: no controla el parámetro de impacto de cada
+partícula. Manda un **haz** uniforme de densidad $n$ partículas por unidad de
+área y cuenta cuántas llegan a un detector que subtiende un ángulo sólido
+$d\Omega$. Para una colisión elástica, central y axialsimétrica, la **sección
+eficaz diferencial** en el centro de masa es
+
+$$
+\frac{d\sigma}{d\Omega}=\frac{\text{partículas por unidad de tiempo en }d\Omega}{n\,v_\infty\,d\Omega}.
+$$
+
+Si el mapa $b\mapsto\Theta$ es de una sola rama y diferenciable, las
+partículas que pasan por el anillo entre $b$ y $b+db$, de área $2\pi b\,db$,
+salen entre $\Theta$ y $\Theta+d\Theta$, de ángulo sólido
+$2\pi\sin\Theta\,d\Theta$. Igualando,
+
+$$
+\boxed{\frac{d\sigma}{d\Omega}=\frac{b}{\sin\Theta}\left|\frac{db}{d\Theta}\right|.}
+$$
+
+Con la hipérbola, $b=\frac d2\cot\frac\Theta2$, y se obtiene la **fórmula de
+Rutherford**:
+
+$$
+\frac{d\sigma}{d\Omega}=\left(\frac{d}{4}\right)^2\frac{1}{\sin^4(\Theta/2)}.
+$$
+
+### 6.2. Primer estimador: derivar la función de dispersión
+
+La fórmula de 6.1 pide $db/d\Theta$, pero lo que calculamos es el ángulo en
+función de $b$. Como $|db/d\Theta|=1/|d\Theta/db|$,
+
+$$
+\frac{d\sigma}{d\Omega}=\frac{b}{\sin\Theta}\,\frac{1}{|d\Theta/db|}.
+$$
+
+Mientras $\chi$ esté entre $-\pi$ y $\pi$ sin cambiar de signo,
+$\Theta=|\chi|$ y $|d\Theta/db|=|d\chi/db|$: por eso hablamos de **derivar
+la función de deflexión**. Cerca de $\Theta=0$ o $\pi$, y donde
+$d\Theta/db=0$, esta expresión se vuelve numéricamente delicada o deja de
+representar una sola rama.
+
+Tomamos $\Theta$ sobre una grilla de $b$ y estimamos $d\Theta/db$ con
+diferencias centradas (`np.gradient`). Antes de usarlo con un potencial sin
+fórmula, lo controlamos con la hipérbola exacta: así medimos sólo el error de
+la derivada.
+
+```{python}
+#| label: derivada
+
+def seccion_eficaz_derivada(b, chi):
+    """dσ/dΩ = b / (sin Θ · |dΘ/db|), con dΘ/db por diferencias centradas. Supone χ(b) monótona."""
+
+    theta = np.arccos(np.cos(chi))
+    return theta, b / np.sin(theta) / np.abs(np.gradient(theta, b))
+
+
+def rutherford(theta, d=1.0):
+    return (d / 4) ** 2 / np.sin(theta / 2) ** 4
+
+
+b = np.geomspace(0.05, 20.0, 300)
+theta, seccion = seccion_eficaz_derivada(b, 2 * np.arctan(1 / (2 * b)))
+interior = slice(1, -1)
+desvio = np.max(np.abs(seccion[interior] / rutherford(theta[interior]) - 1))
+print(f"derivada sobre 300 puntos contra Rutherford: desvío máximo {desvio:.1e}")
+```
+
+### 6.3. Segundo estimador: un haz al azar
+
+El otro camino imita al experimento: mandamos muchas partículas con parámetros
+de impacto al azar y contamos con qué ángulo sale cada una.
+
+1. Sorteamos $N$ valores de $b$ uniformes en $[0,b_{\max}]$.
+2. Por la simetría alrededor del eje del haz, cada $b_j$ representa un
+   **anillo** de radio $b_j$ y ancho $b_{\max}/N$, de área
+   $$
+   w_j=2\pi b_j\,\frac{b_{\max}}{N}.
+   $$
+3. Cada partícula sale con el ángulo $\Theta(b_j)$. Agrupamos los ángulos en
+   intervalos $[\Theta_1,\Theta_2]$ y sumamos las áreas $w_j$ de las partículas
+   que cayeron en cada uno: esa suma es la sección eficaz $\Delta\sigma$ del
+   intervalo.
+4. Dividimos por el ángulo sólido del intervalo,
+   $$
+   \Delta\Omega=2\pi\left(\cos\Theta_1-\cos\Theta_2\right),
+   $$
+   y queda $d\sigma/d\Omega\approx\Delta\sigma/\Delta\Omega$.
+
+El factor $2\pi b$ es el mismo anillo de la sección 6.1. Como acá fijamos el
+número total de muestras, la incertidumbre es la del estimador Monte Carlo, no
+la de un conteo de Poisson. Para un intervalo, si $\Delta\sigma=\sum_j w_j$,
+su error estimado es
+
+$$
+\frac{1}{\Delta\Omega}
+\sqrt{\frac{N}{N-1}\left(\sum_j w_j^2-\frac{\Delta\sigma^2}{N}\right)}.
+$$
+
+En intervalos poco poblados, $\sqrt{\sum_jw_j^2}/\Delta\Omega$ es una buena
+aproximación conservadora.
+
+> Este estimador no necesita que $\chi(b)$ sea monótona: si varios $b$ caen en
+> el mismo intervalo, sus áreas se suman solas.
+
+**Para pensar (lo retomamos en la clase 06).** Un haz real reparte las
+partículas de manera uniforme por unidad de área, no uniforme en $b$. ¿Cómo
+habría que sortear $b$ para imitarlo, y qué peso tendría entonces cada
+partícula?
+
+### 6.4. Coulomb apantallado
+
+Ahora aplicamos los dos estimadores a un potencial sin fórmula cerrada para
+$\chi(b)$: Yukawa.
+
+**Qué $a$ elegir.** Como vimos en la sección 2, el resultado depende sólo de
+$a/d$. Los extremos se entienden sin calcular:
+
+- con $a\gg d$, el potencial es Coulomb en toda la zona donde la partícula se
+  desvía, y se recupera Rutherford; la diferencia queda en ángulos muy chicos;
+- con $a\ll d$, el potencial se apaga antes de que la partícula llegue a $d$:
+  sólo se desvían las que pasan a distancias del orden de $a$, y la sección
+  eficaz queda muy por debajo de Rutherford.
+
+El caso interesante es el intermedio, $a\sim d$, que no se resuelve a mano.
+Tomamos $a=2d$.
+
+**Cómo calculamos.** Los dos estimadores parten de la misma tabla de $\chi(b)$:
+
+1. integramos trayectorias en una grilla de $b$ entre $0.01d$ y $20d$,
+   espaciada logarítmicamente para cubrir ángulos grandes y chicos. Usamos
+   $R_0=60d=30a$, holgado para este alcance según la sección 3.3;
+2. **derivada** (sección 6.2): estimamos $d\Theta/db$ sobre la grilla y
+   aplicamos $b/(\sin\Theta\,|d\Theta/db|)$. Da una curva suave, y vale si $\chi(b)$ es monótona: en este caso
+   lo es, pero conviene comprobarlo en la tabla;
+3. **haz al azar** (sección 6.3): sorteamos $b$, interpolamos $\chi$ en la tabla
+   y armamos el histograma pesado. No usa la derivada, así que la controla.
+
+Rutherford, el límite $a\to\infty$, queda como referencia.
+
+**Antes de ejecutar:** ¿en qué ángulos esperan que el apantallamiento se note
+más, comparado con Rutherford?
+
+```{python}
+#| label: yukawa
+
+apantallado = Yukawa(k=1.0, a=2.0)
+b = np.geomspace(0.01, 20.0, 160)
+chi = np.array([deflexion(trayectoria(apantallado, 1.0, bi, R0=60.0)) for bi in b])
+theta, seccion = seccion_eficaz_derivada(b, chi)
+
+rng = np.random.default_rng(2026)
+b_max, n = 4.0, 400_000
+muestras = b_max * rng.random(n)
+pesos = 2 * np.pi * muestras * b_max / n
+angulos = np.arccos(np.cos(np.interp(muestras, b, chi)))
+bordes = np.radians(np.arange(6.0, 180.1, 4.0))
+delta_sigma, _ = np.histogram(angulos, bins=bordes, weights=pesos)
+suma_cuadrados, _ = np.histogram(angulos, bins=bordes, weights=pesos**2)
+angulo_solido = 2 * np.pi * (np.cos(bordes[:-1]) - np.cos(bordes[1:]))
+centros = 0.5 * (bordes[:-1] + bordes[1:])
+error_delta_sigma = np.sqrt(np.maximum(n / (n - 1) * (suma_cuadrados - delta_sigma**2 / n), 0))
+```
+
+```{python}
+#| label: fig-yukawa
+#| fig-cap: "Sección eficaz de Yukawa con a = 2d por los dos estimadores, y Rutherford como referencia."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(7, 4))
+visibles = theta > np.radians(2)
+ax.semilogy(np.degrees(theta[visibles]), seccion[visibles], "-", label="derivada de χ(b)")
+ax.errorbar(np.degrees(centros), delta_sigma / angulo_solido, error_delta_sigma / angulo_solido,
+            fmt="o", ms=3, label="haz al azar")
+ax.semilogy(np.degrees(centros), rutherford(centros), "k--", lw=1, label="Rutherford")
+ax.set(xlabel="$\\Theta$ (grados)", ylabel="$d\\sigma/d\\Omega$ ($d^2$)", xlim=(0, 180), ylim=(1e-2, 1e5))
+ax.legend()
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+El haz sólo llega hasta $b_{\max}=4d$, así que el histograma sólo representa
+los ángulos mayores que $\chi(b_{\max})$, unos 4°; por eso empieza en 6°. Los
+dos estimadores coinciden dentro del error estadístico del histograma.
+Fíjense dónde se aparta Yukawa de Rutherford y comparen con su predicción.
+
+### 6.5. La sección eficaz total
+
+Integrando en todos los ángulos, $\sigma_{\text{tot}}=\int(d\sigma/d\Omega)\,d\Omega$
+es el área efectiva del blanco. En mecánica clásica es **infinita** para
+cualquier potencial que no se anule estrictamente a partir de cierta distancia:
+toda partícula se desvía algo, por lejos que pase. Para Coulomb diverge porque
+Rutherford crece como $\Theta^{-4}$; con Yukawa diverge más despacio, pero
+también diverge. Un experimento mide una sección eficaz con corte angular, por
+ejemplo $\sigma(\Theta>\Theta_{\min})$, que sí es finita. En mecánica cuántica
+los potenciales de corto alcance tienen sección total finita; Coulomb sin
+apantallar sigue siendo un caso de largo alcance que requiere un corte o un
+tratamiento especial.
+
+## 7. Potenciales atractivos: la función de dispersión deja de ser monótona
+
+Volvemos al potencial de Lennard-Jones de la sección 2, con su carozo
+repulsivo y su pozo de profundidad $\varepsilon$. Una partícula con $b$ chico rebota en el carozo ($\chi>0$); una
+con $b$ grande sólo siente el pozo y se desvía hacia el centro ($\chi<0$).
+
+```{python}
+#| label: lennard-jones
+
+lj = LennardJones()
+b = np.linspace(0.02, 3.0, 150)
+chi_lj = {}
+for E in (5.0, 1.0):
+    chi_lj[E] = np.array([deflexion(trayectoria(lj, E, bi, R0=10.0)) for bi in b])
+    i = np.argmin(chi_lj[E])
+    print(f"E = {E:g} ε: mínimo χ = {np.degrees(chi_lj[E][i]):.1f}° en b = {b[i]:.2f} σ")
+```
+
+```{python}
+#| label: fig-lennard-jones
+#| fig-cap: "Función de dispersión de Lennard-Jones a dos energías. El mínimo de cada curva es el ángulo de arco iris."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(7, 4))
+for E, chi in chi_lj.items():
+    ax.plot(b, np.degrees(chi), label=f"E = {E:g} ε")
+for nivel in (0, -180):
+    ax.axhline(nivel, color="black", lw=0.8)
+ax.set(xlabel="$b/\\sigma$", ylabel="$\\chi$ (grados)")
+ax.legend()
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Tres consecuencias:
+
+- **Varias ramas.** Un mismo ángulo observado $\Theta$ puede venir de varios
+  parámetros de impacto $b_i$. Las contribuciones se **suman**:
+  $$
+  \frac{d\sigma}{d\Omega}=\sum_i\frac{b_i}{\sin\Theta}\left|\frac{db}{d\Theta}\right|_{b_i}.
+  $$
+  La fórmula de la sección 6.1 es el caso de una sola rama.
+- **Arco iris.** En el mínimo de $\chi(b)$ vale $d\chi/db=0$. Es el mismo
+  fenómeno que produce el arco iris óptico, con gotas de agua en lugar de un
+  potencial.
+- **Vueltas.** Con $E=\varepsilon$ el mínimo pasa de $-180°$: hay partículas que
+  rodean el centro antes de salir. A energías menores, alguna queda orbitando
+  un tiempo arbitrariamente largo, y la integración necesita un criterio para
+  detenerse; el código de esta clase lo informa como falta de salida, no como
+  un ángulo válido.
+
+**Para pensar.** ¿Qué le pasa a $d\sigma/d\Omega$ en el ángulo donde
+$d\chi/db=0$? ¿Y del otro lado de ese ángulo? ¿Cómo lo verían en el
+histograma de la sección 6.3?
+
+### Discusión en grupos
+
+Para cada situación, propongan un control que podría mostrar que el cálculo
+está mal:
+
+1. un ángulo de Coulomb obtenido integrando trayectorias;
+2. una sección eficaz obtenida derivando $\chi(b)$ sobre una grilla;
+3. una sección eficaz obtenida con un haz al azar;
+4. una comparación entre una simulación y datos de un experimento;
+5. la sección eficaz de un potencial con un pozo.
+
+## 8. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- el problema de dos cuerpos con fuerza central se reduce a uno, plano, con
+  la masa reducida;
+- la energía y el momento angular controlan la trayectoria, pero no el error
+  por dominio finito;
+- un potencial de corto alcance puede tener un infinito **efectivo** a distancia
+  finita, para una tolerancia elegida, y Coulomb no;
+- el paso adaptativo concentra el costo donde la trayectoria lo necesita;
+- la cuadratura y la trayectoria aportan controles con discretizaciones
+  distintas para el mismo ángulo;
+- la sección eficaz sale de $\chi(b)$, derivando o contando, y los dos caminos
+  se controlan entre sí.
+
+No podemos concluir que:
+
+- conservar $E$ y $L$ garantice que el ángulo sea el del problema planteado;
+- una tolerancia chica en `solve_ivp` implique un ángulo exacto;
+- un acuerdo con Rutherford en algunos ángulos valide todos los ángulos;
+- la fórmula de una sola rama valga para cualquier potencial;
+- el acuerdo entre dos métodos valide automáticamente los supuestos que
+  comparten.
+
+### Puente con el TP 03
+
+En el [TP 03](../TPs/03-dispersion/index.md) van a:
+
+1. implementar la cuadratura y compararla con la trayectoria y con Rutherford;
+2. auditar cuatro informes sobre dispersión generados con IA;
+3. convertir los controles de la auditoría en tests;
+4. en el [TP de problema inverso](../TPs/03-inverso/index.md), estimar la longitud de apantallamiento de un
+   Yukawa a partir de las cuentas de un detector.
+
+La pregunta de salida:
+
+> **¿Qué parte de una medición de dispersión informa sobre el potencial, y qué
+> parte sólo informa sobre cómo la calculamos?**

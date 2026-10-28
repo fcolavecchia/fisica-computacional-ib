@@ -21,8 +21,9 @@ limitaciones.
   péndulo no lineal.
 
 <!--
-- [Dispersión](03-dispersion/index.md): ángulo por cuadratura, auditoría de
-  informes generados con IA y un problema inverso: la longitud de
+- [Dispersión](03-dispersion/index.md): ángulo por cuadratura y auditoría de
+  informes generados con IA.
+- [Problema inverso de dispersión](03-inverso/index.md): longitud de
   apantallamiento de un Yukawa a partir de cuentas.
 - [Tres cuerpos y caos](04-tres-cuerpos/index.md): práctico corto en clase,
   sin entrega. Tests de la órbita en ocho, exponente de Lyapunov y horizonte
