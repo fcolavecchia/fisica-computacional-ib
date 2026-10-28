@@ -19,10 +19,10 @@ limitaciones.
 - [Oscilador recargado](02-oscilador-recargado/index.md): Verlet, auditoría
   de informes generados con IA y el primer paquete de afirmación, con el
   péndulo no lineal.
-
-<!--
 - [Dispersión](03-dispersion/index.md): ángulo por cuadratura y auditoría de
   informes generados con IA.
+
+<!--
 - [Problema inverso de dispersión](03-inverso/index.md): longitud de
   apantallamiento de un Yukawa a partir de cuentas.
 - [Tres cuerpos y caos](04-tres-cuerpos/index.md): práctico corto en clase,
