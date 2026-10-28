@@ -333,8 +333,11 @@ sol = solve_ivp(f, (t0, t_final), y0, method="DOP853", rtol=1e-10, atol=1e-12, e
 
 - `f(t, y)` devuelve la derivada del estado; `y0` es el estado inicial.
 - `method` elige el integrador: `RK45` (por defecto) y `DOP853` son
-  Runge-Kutta explícitos con paso adaptativo; `Radau`, `BDF` y `LSODA` son
-  implícitos, para problemas rígidos.
+  Runge-Kutta explícitos con paso adaptativo; `Radau` y `BDF` son implícitos,
+  pensados para problemas *stiff* (con escalas de tiempo muy dispares, donde
+  un método explícito necesitaría pasos diminutos sólo para ser estable; ver
+  Euler implícito en la clase 01); `LSODA` alterna automáticamente entre un
+  método explícito y uno implícito.
 - `rtol` y `atol` fijan el error tolerado **por paso**.
 - `events` recibe una o varias funciones cuyos ceros hay que detectar.
 - Devuelve un objeto con `sol.t`, `sol.y` (una fila por componente),
