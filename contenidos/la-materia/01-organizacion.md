@@ -98,7 +98,8 @@ trabajo práctico está en [Trabajos prácticos](../TPs/index.md).
 
 ## Evaluación
 
-La nota combina cuatro trabajos prácticos grupales y una defensa individual. No se
+La nota combina los trabajos prácticos grupales, cinco en la propuesta actual,
+y una defensa individual. No se
 califica la figura más atractiva, la cantidad de código ni ganar una
 competencia. Tampoco se penaliza haber usado IA si pueden verificar, explicar y
 adaptar lo que entregan. Detalle y rúbrica en [Evaluación](04-evaluacion.md).

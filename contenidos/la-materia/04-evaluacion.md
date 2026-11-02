@@ -12,16 +12,19 @@ parte sustancial del trabajo, si pueden verificarla, explicarla y adaptarla.
 
 ## Qué se evalúa
 
-| Evidencia                       | Modalidad                         | Peso orientativo (\*) |
-| ------------------------------- | --------------------------------- | --------------------: |
-| Trabajo práctico 1: colisiones  | grupal                            |                   20% |
-| Trabajo práctico 2: Schrödinger | grupal                            |                   20% |
-| Trabajo práctico 3: fluidos     | grupal                            |                   20% |
-| Trabajo práctico final          | grupal, con componentes asignados |                   20% |
-| Defensas y perturbaciones       | individual                        |                   20% |
+| Evidencia (\*)                           | Modalidad                         |
+| ---------------------------------------- | --------------------------------- |
+| Trabajo práctico 03: colisiones          | grupal                            |
+| Trabajo práctico 04: colapso             | grupal                            |
+| Trabajo práctico 05: dinámica molecular  | grupal                            |
+| Trabajo práctico 06: a definir           | grupal                            |
+| Trabajo práctico 07: Schrödinger         | grupal                            |
+| Trabajo práctico final                   | grupal, con componentes asignados |
+| Defensas y perturbaciones                | individual                        |
 
-(\*) El número de prácticos no está definido al momento y dependerá de cómo vayamos
-viendo la respuesta durante las clases.
+(\*) La lista es orientativa: apuntamos a cinco prácticos, y el número final
+dependerá de cómo vayamos viendo la respuesta durante las clases. El peso de
+cada evidencia se define más adelante.
 
 La nota de cada trabajo práctico combina el paquete entregado y la presentación
 del grupo.

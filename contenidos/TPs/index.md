@@ -21,17 +21,11 @@ limitaciones.
   péndulo no lineal.
 - [Dispersión](03-dispersion/index.md): ángulo por cuadratura y auditoría de
   informes generados con IA.
+- [Colapso frío y gravedad aproximada](04-colapso/index.md): cáscaras
+  esféricas y malla con transformada de Fourier contra la suma directa.
 
 <!--
-- [Problema inverso de dispersión](03-inverso/index.md): longitud de
-  apantallamiento de un Yukawa a partir de cuentas.
-- [Tres cuerpos y caos](04-tres-cuerpos/index.md): práctico corto en clase,
-  sin entrega. Tests de la órbita en ocho, exponente de Lyapunov y horizonte
-  de predicción del problema pitagórico.
-- [Colapso frío y gravedad aproximada](05-colapso/index.md): optativo.
-  Cáscaras esféricas y malla con transformada de Fourier contra la suma
-  directa.
-- [Dinámica molecular y Metropolis](06-dinamica-molecular/index.md): barras de
+- [Dinámica molecular y Metropolis](05-dinamica-molecular/index.md): barras de
   error con muestras correlacionadas y comparación entre el promedio temporal
   de Newton y el de ensamble de Metropolis.
 -->
