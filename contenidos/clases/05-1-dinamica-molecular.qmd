@@ -328,11 +328,15 @@ costos = []
 print(f"{'N':>6} {'máx |ΔF|':>9} {'directa (ms)':>13} {'celdas (ms)':>12}")
 for n in (5, 6, 8, 10, 13):
     r, L = configuracion(n)
-    directa = 1e3 * tiempo(fuerzas, r, L) if len(r) <= 2048 else np.nan
-    diferencia = np.abs(fuerzas(r, L)[0] - fuerzas_celdas(r, L)[0]).max() if len(r) <= 2048 else np.nan
     celdas = 1e3 * tiempo(fuerzas_celdas, r, L)
+    if len(r) <= 4000:
+        directa = 1e3 * tiempo(fuerzas, r, L)
+        diferencia = np.abs(fuerzas(r, L)[0] - fuerzas_celdas(r, L)[0]).max()
+        print(f"{len(r):6d} {diferencia:9.0e} {directa:13.1f} {celdas:12.1f}")
+    else:  # la suma directa no entra en memoria
+        directa = np.nan
+        print(f"{len(r):6d} {'—':>9} {'—':>13} {celdas:12.1f}")
     costos.append((len(r), directa, celdas))
-    print(f"{len(r):6d} {diferencia:9.0e} {directa:13.1f} {celdas:12.1f}")
 costos = np.array(costos)
 ```
 
@@ -355,7 +359,8 @@ plt.show()
 Con pocas partículas la suma directa gana: las celdas pagan el costo de
 ordenar y de recorrer celdas casi vacías. Por encima de un millar de partículas
 la diferencia crece con $N$. Para $N=8788$ no medimos la suma directa: el
-arreglo de diferencias ocuparía unos 2 GB.
+arreglo de diferencias solo ocuparía unos 2 GB, y con los arreglos
+intermedios de NumPy el cálculo necesitaría unos 9 GB.
 
 Dos comentarios:
 
@@ -380,14 +385,19 @@ Antes de integrar fijamos dos cosas:
 - **momento total nulo**: si no, toda la caja deriva;
 - **temperatura inicial** $T_0$, reescalando las velocidades una sola vez.
 
-Por equipartición, la temperatura instantánea es
+Por equipartición, cada grado de libertad aporta $\tfrac12 T$ a la energía
+cinética media, con $K=\tfrac12\sum_i|\mathbf v_i|^2$. Hay $3(N-1)$ grados de
+libertad, porque fijamos los tres componentes del momento total, así que la
+temperatura instantánea es
 
 $$
-T=\frac{2K}{3(N-1)},
+T=\frac{2K}{3(N-1)}.
 $$
 
-con $3(N-1)$ grados de libertad porque fijamos los tres componentes del momento
-total. Integramos con el Verlet de velocidades de la clase 02.
+Integramos con el Verlet de velocidades de la clase 02. Además de $K$
+registramos la energía potencial $U=\sum_{i<j}V_c(r_{ij})$, con $r_{ij}$ la
+distancia a la imagen más cercana. La energía total $E=K+U$ tiene que
+conservarse.
 
 ```{python}
 #| label: simulacion
@@ -559,7 +569,7 @@ _, g_red = distribucion_radial(registro["r"][:1] % L, L)
 #| code-summary: "Código de la figura"
 
 fig, ax = plt.subplots(figsize=(7, 3.5))
-ax.plot(r_g, g_red / g_red.max() * g.max(), color="0.7", lw=0.8, label="red inicial (escala arbitraria)")
+ax.plot(r_g, g_red / g_red.max() * g.max(), color="0.7", lw=0.8, label="red inicial (altura reescalada)")
 ax.plot(r_g, g, label="líquido")
 ax.axhline(1, color="black", lw=0.8)
 ax.set(xlabel="$r/\\sigma$", ylabel="$g(r)$", xlim=(0, L / 2))
@@ -575,8 +585,11 @@ Tres controles se leen en la figura:
   primeras vecinas;
 - $g(r)\to1$ a distancias grandes: lejos de una partícula, el fluido no la ve.
 
-Las líneas finas de la red se convirtieron en picos anchos que se amortiguan:
-orden de corto alcance, sin orden de largo alcance. Eso es un líquido.
+En la red, $g(r)$ es una suma de deltas en las distancias de las capas de
+vecinas; el histograma les da una altura que depende de $\Delta r$, así que en
+la figura la reescalamos. Las líneas finas de la red se convirtieron en picos
+anchos que se amortiguan: orden de corto alcance, sin orden de largo alcance.
+Eso es un líquido.
 
 ### 6.3. Dinámica: el desplazamiento cuadrático medio
 
@@ -585,7 +598,7 @@ plegar** a la caja: si no, una partícula que cruza una cara parece saltar una
 distancia $L$.
 
 $$
-\langle\Delta r^2(t)\rangle=\frac1N\sum_i|\mathbf r_i(t_0+t)-\mathbf r_i(t_0)|^2\ \xrightarrow{\,t\to\infty\,}\ 6Dt .
+\langle\Delta r^2(t)\rangle=\frac1N\sum_i|\mathbf r_i(t_0+t)-\mathbf r_i(t_0)|^2 .
 $$
 
 ```{python}
@@ -594,9 +607,8 @@ $$
 r_eq = registro["r"][equilibrio]
 tau = t[equilibrio] - t[equilibrio][0]
 msd = np.mean(np.sum((r_eq - r_eq[0]) ** 2, axis=-1), axis=1)
-tardio = tau >= 5
-D = np.polyfit(tau[tardio], msd[tardio], 1)[0] / 6
-print(f"D ≈ {D:.3f} σ²/τ  (ajuste lineal desde t = 5 τ, un solo origen temporal)")
+ventana = (tau >= 1) & (tau <= 10)
+pendiente, ordenada = np.polyfit(tau[ventana], msd[ventana], 1)
 ```
 
 ```{python}
@@ -618,24 +630,45 @@ plt.show()
 
 ```{python}
 #| label: fig-msd
-#| fig-cap: "Desplazamiento cuadrático medio en el líquido, en escala logarítmica."
+#| fig-cap: "Desplazamiento cuadrático medio en el líquido, en escala logarítmica, con el régimen balístico y un ajuste lineal entre t = 1 τ y 10 τ."
 #| code-fold: true
 #| code-summary: "Código de la figura"
 
 fig, ax = plt.subplots(figsize=(7, 3.5))
 ax.loglog(tau[1:], msd[1:], label="simulación")
 ax.loglog(tau[1:10], 3 * T[equilibrio].mean() * tau[1:10] ** 2, "k--", lw=1, label="balístico, $3Tt^2$")
+ax.loglog(tau[ventana], pendiente * tau[ventana] + ordenada, "k:", lw=1.5, label="ajuste lineal, $1\\leq t/\\tau\\leq10$")
 ax.set(xlabel="$t/\\tau$", ylabel="$\\langle\\Delta r^2\\rangle$ ($\\sigma^2$)")
 ax.legend()
 ax.grid(alpha=0.25)
 plt.show()
 ```
 
-A tiempos cortos cada partícula vuela libre, con $\langle\Delta r^2\rangle=3Tt^2$.
-A tiempos largos los choques la convierten en un caminante aleatorio y el
-desplazamiento cuadrático crece linealmente. El coeficiente de difusión vuelve
-a aparecer en la clase 07, con caminantes al azar, y en la 08, con la ecuación
-del calor.
+A tiempos cortos cada partícula vuela libre, con $\langle\Delta r^2\rangle=3Tt^2$:
+pendiente 2 en escala logarítmica. Desde $t\approx\tau$ la curva sigue una
+recta: el desplazamiento cuadrático crece **linealmente** con $t$. Es el
+comportamiento de un caminante aleatorio. Después de muchos choques, el
+desplazamiento en cada dirección es una suma de muchos tramos casi
+independientes, y sus varianzas se suman. La pendiente define el **coeficiente
+de difusión** $D$:
+
+$$
+\langle\Delta r^2(t)\rangle\simeq6Dt\qquad(t\gg\tau).
+$$
+
+El 6 es $2d$ con $d=3$ dimensiones: cada componente aporta $2Dt$, la convención
+de la ecuación de difusión $\partial_t c=D\nabla^2c$. La ordenada del ajuste es
+chica y positiva: es lo que dejó el tramo balístico, que la recta no describe.
+
+```{python}
+#| label: difusion
+
+D = pendiente / 6
+print(f"D ≈ {D:.3f} σ²/τ  (ajuste lineal entre t = 1 τ y 10 τ, un solo origen temporal)")
+```
+
+El coeficiente de difusión vuelve a aparecer en la clase 07, con caminantes al
+azar, y en la 08, con la ecuación del calor.
 
 ## 7. Promedios correlacionados
 
