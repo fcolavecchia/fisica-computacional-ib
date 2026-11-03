@@ -34,8 +34,9 @@ suavizado. Lo que se resuelve ahí es **cómo cambia con el tiempo el radio de
 cada cáscara delgada de esa esfera**.
 
 Tomemos la cáscara que empieza en el radio $r_0$, y llamemos $r(t)$ a su radio
-en el instante $t$. Por el teorema de Newton, la cáscara siente sólo la masa
-que tiene adentro, como si estuviera toda en el centro:
+en el instante $t$. Por el teorema de la cáscara esférica (*shell theorem*),
+que se deduce de la ley de Gauss para la gravedad, la cáscara siente sólo la
+masa que tiene adentro, como si estuviera toda en el centro:
 $M(<r_0)=M\,(r_0/R)^3$. Esa masa no cambia mientras ninguna otra cáscara la
 cruce. Entonces $r(t)$ cumple la ecuación de una caída libre radial desde el
 reposo,
@@ -110,11 +111,11 @@ Lo calcula `campo_esfera_uniforme`, y es la referencia de las partes 2 y 3.
 La suma directa cuesta $N^2$. Probamos dos alternativas de la tabla de la
 clase 04:
 
-- **cáscaras esféricas**: por el teorema de Newton, cada partícula siente sólo
-  la masa más cerca del centro que ella, como si estuviera toda en el centro.
-  No hay que elegir un espesor: cada partícula hace de cáscara delgada de su
-  propio radio, y la masa interior se cuenta partícula por partícula. Costo
-  $N\log N$;
+- **cáscaras esféricas**: por el teorema de la cáscara esférica, cada
+  partícula siente sólo la masa más cerca del centro que ella, como si
+  estuviera toda en el centro. No hay que elegir un espesor: cada partícula
+  hace de cáscara delgada de su propio radio, y la masa interior se cuenta
+  partícula por partícula. Costo $N\log N$;
 - **malla**: la masa se reparte en una grilla, el potencial se calcula con
   transformadas de Fourier y la fuerza se interpola a las partículas. Costo
   $N+N_c\log N_c$ para $N_c$ celdas.
