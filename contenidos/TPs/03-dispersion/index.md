@@ -62,12 +62,21 @@ En este TP se toma como dato; no es un parámetro a ajustar.
    Rutherford y contra la trayectoria. Elijan las tolerancias y justifíquenlas.
 3. Comprueben que cada test falla si introducen a propósito un error en
    `angulo_cuadratura`, por ejemplo un factor 2 o un límite corrido.
+   Registren en `lab.md` las tolerancias elegidas, los errores que
+   introdujeron y si cada test los detectó.
 
 ## Parte 2 — Auditoría
 
 Un asistente de IA produjo cuatro informes a partir de este repositorio. Los
 cuatro corren, dan números razonables y tienen figuras prolijas. Audítenlos
-siguiendo `auditoria/README.md` y registren cada auditoría en `lab.md`.
+siguiendo `auditoria/README.md`.
+
+Cada informe es un experimento: escriban una entrada de `lab.md` por informe,
+con el formato de
+[auditar un informe](../../la-materia/03-entrega-tps.md#auditar-un-informe).
+La entrada dice si la conclusión vale, por qué y qué corrección hace falta para
+llegar a un resultado físicamente correcto. Si la corrección es de código, se
+hace en la parte 3; en la entrada anoten el commit.
 
 ## Parte 3 — De la auditoría a los tests
 

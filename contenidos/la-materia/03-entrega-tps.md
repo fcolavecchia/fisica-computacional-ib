@@ -24,9 +24,10 @@ pyproject.toml     dependencias y comandos
 ```
 
 En la actividad inicial y el TP 01 cada estudiante crea una copia privada del
-template. Desde el TP 02 la cátedra crea un repositorio privado por grupo:
-los estudiantes tienen permiso para trabajar y los docentes tienen acceso
-desde el comienzo. Cada integrante acepta su invitación antes de clonarlo.
+template. Desde el TP 02 la cátedra crea un repositorio privado por
+estudiante o por grupo, según el práctico: los estudiantes tienen permiso para
+trabajar y los docentes tienen acceso desde el comienzo. Cada integrante
+acepta su invitación antes de clonarlo.
 
 ## `question.md`: antes de correr
 
@@ -84,12 +85,16 @@ uv run pytest
 
 ## `lab.md`: el cuaderno
 
-Una entrada por experimento, escrita el día que se corrió:
+`lab.md` es un cuaderno de laboratorio: **cada experimento es una entrada**,
+escrita el día que se corrió. Un experimento es cualquier corrida que pone algo
+a prueba: un test, un script propio o la auditoría de un informe. Las entradas
+no se reescriben: si una resulta equivocada, se agrega otra que la corrige.
 
 ```markdown
 ## 2026-10-22 — ¿Converge el ángulo al agrandar el dominio?
 
 - **Esperábamos:** error proporcional a 1/R.
+- **Criterio:** aceptamos si la pendiente queda entre −1.1 y −0.9.
 - **Corrimos:** `uv run python experiments/convergencia_dominio.py` (commit a1b2c3d).
 - **Vimos:** `results/convergencia_dominio.png`: pendiente −2, no −1.
 - **Interpretación:** la condición inicial conserva el momento angular; el error
@@ -97,7 +102,40 @@ Una entrada por experimento, escrita el día que se corrió:
 - **Qué sigue:** confirmar con un potencial de corto alcance.
 ```
 
-Al final, la **afirmación vigente**, con la forma de cierre de cada clase:
+**Esperábamos** y **Criterio** se escriben antes de correr.
+
+### Auditar un informe
+
+Auditar un informe también es un experimento. La entrada contesta tres
+preguntas: **¿la conclusión vale?**, **si no vale, por qué** y **qué hay que
+corregir para obtener un resultado físicamente correcto**.
+
+```markdown
+## AAAA-MM-DD — Informe X: pregunta del informe
+
+- **Esperábamos:** si le creemos a la conclusión y qué tendría que ser cierto
+  para que valga.
+- **Criterio:** un control independiente que podría refutarla, y qué resultado
+  la refutaría.
+- **Corrimos:** comando y commit.
+- **Vimos:** archivo de results/ y números.
+- **Veredicto:** la conclusión vale, no vale o vale en parte. Si falla, la
+  fuente (modelo, método o código) y por qué.
+- **Corrección:** qué cambiamos y qué da al volver a correr (comando, commit,
+  results/).
+- **Afirmación:** la conclusión que sí sostiene la evidencia.
+```
+
+La corrección depende de la fuente: otras ecuaciones (modelo), otro integrador
+u otro paso (método), un test que falla y el arreglo en commits separados
+(código), o **la afirmación misma**, cuando los números están bien calculados
+pero no sostienen lo que el informe concluye. "La conclusión vale" es un
+veredicto posible si el control no la refuta.
+
+### Afirmación vigente
+
+Al final del cuaderno va la **afirmación vigente** sobre la pregunta de
+`question.md`, con la forma de cierre de cada clase:
 
 > Con la evidencia disponible podemos afirmar **X**, siempre que se cumplan
 > **A** y **B**. Todavía no sabemos **C** y el siguiente experimento debería
