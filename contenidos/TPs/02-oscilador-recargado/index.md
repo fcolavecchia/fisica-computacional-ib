@@ -45,13 +45,21 @@ $y=[\text{posición},\ \text{velocidad}]$. Trae dos modelos, en
 > genérica, pero no todas las dinámicas que admite tienen esas propiedades.
 3. Comprueben que cada test falla si introducen a propósito un error en
    `paso_verlet`. Un test que no detecta un Verlet mal implementado no está
-   controlando Verlet.
+   controlando Verlet. Registren en `lab.md` las tolerancias elegidas, los
+   errores que introdujeron y si cada test los detectó.
 
 ## Parte 2 — Auditoría
 
 Un asistente de IA produjo tres informes a partir de este repositorio. Los tres
-corren, dan números razonables y tienen figuras prolijas. Audítenlos siguiendo
-`auditoria/README.md` y registren cada auditoría en `lab.md`.
+corren, dan números razonables y tienen figuras prolijas. Audítenlos a los
+tres siguiendo `auditoria/README.md`.
+
+Cada informe es un experimento: escriban una entrada de `lab.md` por informe,
+con el formato de
+[auditar un informe](../../la-materia/03-entrega-tps.md#auditar-un-informe).
+La entrada dice si la conclusión vale, por qué y qué corrección hace falta para
+llegar a un resultado físicamente correcto. Si la corrección es de código, se
+hace en la parte 3; en la entrada anoten el commit.
 
 ## Parte 3 — De la auditoría a los tests
 
@@ -78,8 +86,10 @@ No hay una fórmula cerrada para $\theta(t)$, pero sí para el período:
    sus supuestos, las predicciones y los criterios de aceptación.
 2. Escriban `experiments/pendulo.py`, que genere en `results/` todo lo que
    citen. Comparen los métodos también a igual costo, como en la clase.
-3. Completen `lab.md` con las entradas del experimento, la afirmación vigente,
-   las limitaciones y las explicaciones alternativas.
+3. Completen `lab.md` con las entradas del experimento y ciérrenlo con la
+   afirmación vigente sobre la pregunta del péndulo, las limitaciones y las
+   explicaciones alternativas. Las afirmaciones de la auditoría quedan en la
+   entrada de cada informe.
 4. Documenten en `ai-use.md` qué delegaron a la IA y cómo lo verificaron.
 
 Ver [Paquete de afirmación](../../la-materia/03-entrega-tps.md).
