@@ -1,0 +1,1184 @@
+---
+title: "Monte Carlo y Metropolis"
+subtitle: "Física Computacional 2026"
+fecha: a definir
+# Esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/06-1-monte-carlo.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/06-1-monte-carlo.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** ¿Qué significa la barra de error de un resultado
+> Monte Carlo, y cómo cambia cuando las muestras están correlacionadas?
+
+En la clase anterior el promedio de una trayectoria de Newton nos dio la
+temperatura, la presión y la estructura de un fluido. Hay otra manera de
+obtener los mismos promedios: en lugar de seguir una trayectoria, **sortear
+configuraciones** con la probabilidad que les asigna la mecánica estadística.
+Al terminar podremos:
+
+- calcular integrales sorteando puntos;
+- muestrear la distribución de Boltzmann, la probabilidad de cada configuración
+  en equilibrio térmico, sin conocer la función de partición, que es su
+  constante de normalización;
+- y, sobre todo, ponerle a cada resultado una barra de error que signifique
+  algo.
+
+```{python}
+#| label: imports
+#| include: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import quad, trapezoid
+from scipy.special import gamma
+```
+
+## 1. Integrar sorteando
+
+Llamamos **método de Monte Carlo** a estimar una cantidad como el promedio de
+muestras aleatorias, y a medir la incertidumbre de ese promedio con el teorema
+central del límite. El nombre viene del casino de Mónaco: hay azar en el
+método (ver la nota histórica al final).
+
+Cualquier integral es un promedio. Si $X$ es uniforme en $[a,b]$,
+
+$$
+I=\int_a^b f(x)\,dx=(b-a)\,\langle f(X)\rangle
+\approx\frac{b-a}{n}\sum_{k=1}^{n}f(x_k).
+$$
+
+El estimador es un promedio de $n$ variables independientes. Por el teorema
+central del límite, su incertidumbre es
+
+$$
+\sigma_I=(b-a)\frac{\sigma_f}{\sqrt n},
+$$
+
+con $\sigma_f$ la desviación estándar de $f(X)$. No la conocemos: la estimamos
+con las mismas muestras, mediante la desviación estándar **muestral**
+
+$$
+\sigma_f^2 \approx s_f^2=\frac{1}{n-1}\sum_{k=1}^{n}\bigl(f(x_k)-\bar f\bigr)^2 ,
+$$
+
+y la barra de error es $(b-a)\,s_f/\sqrt n$. Se divide por $n-1$ y no por $n$
+porque el promedio $\bar f$ sale de los mismos datos: las diferencias respecto
+de él son un poco más chicas que respecto de la media verdadera. En NumPy es
+`std(ddof=1)`. Para $n$ grande da lo mismo; con $n=10$ no. En lo que sigue
+escribimos $\sigma_f/\sqrt n$ para la barra, y estimamos $\sigma_f$ con $n-1$
+(en la hiperesfera, con $n\approx10^6$, la diferencia es despreciable).
+
+Hay dos maneras de usar puntos al azar para integrar. Las probamos con
+$\pi=\int_0^1 4\sqrt{1-x^2}\,dx$:
+
+- **Valor medio:** sorteamos $x$ y promediamos $f(x)$. Es la fórmula de arriba.
+- **Acierto y error** (*hit-or-miss*): sorteamos puntos $(x,y)$ en una caja que
+  contiene la región bajo la curva, aquí $[0,1]\times[0,4]$, y contamos la
+  fracción $p$ que cae debajo de ella. La integral es $4p$. Cada punto es un
+  acierto (1) o un error (0): es el promedio de una variable que sólo vale 0
+  o 1, y su barra de error es la misma $s/\sqrt n$.
+
+Ambos son Monte Carlo y estiman la misma integral con el mismo número $n$ de
+puntos. Medimos el error de cada uno con el **error cuadrático medio** (ECM)
+respecto de $\pi$ en 50 corridas con semillas distintas. Como referencia
+comparamos también con la **regla del trapecio**, con $n$ evaluaciones de $f$.
+
+```{python}
+#| label: pi
+
+def estimar_pi(n, rng):
+    """π como promedio de 4√(1−x²) con n puntos uniformes en [0, 1], y su error σ/√n."""
+    f = 4 * np.sqrt(1 - rng.random(n) ** 2)
+    # ddof=1: la desviación estándar muestral divide por n−1 en lugar de n.
+    return f.mean(), f.std(ddof=1) / np.sqrt(n)
+
+
+def estimar_pi_acierto(n, rng):
+    """π por acierto y error: n puntos uniformes en la caja [0, 1] × [0, 4].
+
+    Acierta el punto que cae bajo la curva y = 4√(1−x²). La integral es el área de la
+    caja (4) por la fracción de aciertos; el error se calcula con la misma fórmula.
+    """
+    x, y = rng.random(n), 4 * rng.random(n)
+    acierto = (y <= 4 * np.sqrt(1 - x**2)).astype(float)
+    return 4 * acierto.mean(), 4 * acierto.std(ddof=1) / np.sqrt(n)
+
+
+def trapecio_pi(n):
+    """π por la regla del trapecio con n puntos equiespaciados en [0, 1]."""
+    x = np.linspace(0, 1, n)
+    return trapezoid(4 * np.sqrt(1 - x**2), x)
+
+
+rng = np.random.default_rng(2026)
+rng_acierto = np.random.default_rng(2027)
+tamanos = 10 ** np.arange(1, 7)
+repeticiones = 50
+error_real, error_estimado, error_acierto, error_trapecio = [], [], [], []
+for n in tamanos:
+    corridas = np.array([estimar_pi(n, rng) for _ in range(repeticiones)])
+    error_real.append(np.sqrt(np.mean((corridas[:, 0] - np.pi) ** 2)))
+    error_estimado.append(corridas[:, 1].mean())
+    aciertos = np.array([estimar_pi_acierto(n, rng_acierto)[0] for _ in range(repeticiones)])
+    error_acierto.append(np.sqrt(np.mean((aciertos - np.pi) ** 2)))
+    error_trapecio.append(abs(trapecio_pi(n) - np.pi))
+
+print("      n   valor medio (ECM)   σ/√n (n−1)   acierto y error (ECM)   trapecio")
+for fila in zip(tamanos, error_real, error_estimado, error_acierto, error_trapecio):
+    print(f"{fila[0]:>7}   {fila[1]:>17.1e}   {fila[2]:>10.1e}   {fila[3]:>21.1e}   {fila[4]:>8.1e}")
+```
+
+```{python}
+#| label: fig-error-pi
+#| fig-cap: "Error de la estimación de π en función del número de puntos. El error cuadrático medio (ECM) sale de 50 corridas con semillas distintas; σ/√n, de cada corrida por separado. El trapecio es determinista: no tiene corridas."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6, 3.8))
+ax.loglog(tamanos, error_real, "o", label="valor medio: ECM, 50 corridas")
+ax.loglog(tamanos, error_estimado, "--", label="valor medio: $\\sigma_f/\\sqrt{n}$ de una corrida")
+ax.loglog(tamanos, error_acierto, "^", label="acierto y error: ECM, 50 corridas")
+ax.loglog(tamanos, error_trapecio, "s-", label="regla del trapecio")
+ax.set(xlabel="$n$", ylabel="error")
+ax.legend()
+ax.grid(alpha=0.25, which="both")
+plt.show()
+```
+
+Dos cosas para retener. La barra $\sigma_f/\sqrt n$ **se estima con la misma
+corrida**, y coincide con el error que se observa repitiendo con otras
+semillas. Y el error baja como $n^{-1/2}$: para ganar una cifra hay que
+multiplicar $n$ por cien.
+
+Con los mismos $n$ puntos, el **acierto y error tiene casi el doble de
+error** que el valor medio. La integral es la misma y el azar también. Cambia
+el estimador: el acierto y error usa de cada punto un solo bit, si cayó
+debajo o no, y el valor medio usa cuánto vale $f$ ahí. Su $\sigma$ es
+$1{,}64$ contra $0{,}89$, y para igualar el error hacen falta unas $3{,}4$
+veces más puntos. **Cómo se muestrea y qué se promedia importan**: es la idea
+de fondo del muestreo por importancia de la sección 3.
+
+Y hay otra cosa, incómoda: **en una dimensión el trapecio es mucho mejor**.
+Con $n=10^6$ su error es del orden de $10^{-9}$, seis órdenes de magnitud
+menos que el de Monte Carlo, y para ganar una cifra alcanza con multiplicar
+$n$ por unas cinco veces. Su error baja como $n^{-3/2}$. Para una función
+suave sería $n^{-2}$; aquí la raíz en $x=1$ lo empeora un poco, y aun así
+gana por mucho. ¿Para qué sirve entonces sortear?
+
+La respuesta está en la **dimensión**. Con una grilla de $k$ puntos por eje
+hacen falta $n=k^d$ puntos, y el error del trapecio, que baja como $k^{-2}$
+para funciones suaves, queda $n^{-2/d}$. Con $d=1$ es $n^{-2}$ y gana por
+mucho. El error de Monte Carlo, en cambio, baja como $n^{-1/2}$ para cualquier
+$d$. Las integrales de la mecánica estadística tienen $3N$ dimensiones, una
+por cada coordenada de las $N$ partículas. Dos ventajas más de Monte Carlo: la
+barra de error sale de la misma corrida, y no hace falta una grilla sobre un
+dominio de forma complicada. ¿A partir de qué dimensión conviene sortear? Lo
+medimos en la sección siguiente.
+
+### 1.1. Volumen de una hiperesfera
+
+El volumen de la esfera de radio uno en $d$ dimensiones es
+$V_d=\pi^{d/2}/\Gamma(d/2+1)$. Elegimos este ejemplo porque se conoce el
+resultado exacto en cualquier dimensión, y porque sirve de modelo de
+dimensión alta. Acá usamos **acierto y error**: sorteamos puntos uniformes en
+el cubo $[-1,1]^d$, cuyo volumen $2^d$ conocemos, y contamos la fracción $p$
+que cae dentro de la esfera. El volumen estimado es $2^d p$. Es la misma
+integral-promedio de la sección 1, con $f=1$ dentro de la esfera y $f=0$
+fuera. Como cada punto cae o no cae, el error es el de una binomial,
+$2^d\sqrt{p(1-p)/n}$.
+
+Lo estimamos de dos maneras, con el mismo presupuesto de $2^{20}\approx10^6$
+evaluaciones:
+
+- **Grilla:** $k$ puntos por eje en el cubo $[-1,1]^d$, con $k^d\le2^{20}$, y
+  contamos los que caen adentro.
+- **Monte Carlo:** $2^{20}$ puntos uniformes en el mismo cubo.
+
+**Antes de correr:** con el presupuesto fijo, ¿cómo esperan que cambie el error
+relativo de cada método al aumentar $d$? Con los exponentes de la sección
+anterior, ¿a partir de qué dimensión esperan que Monte Carlo gane?
+
+```{python}
+#| label: hiperesfera
+
+def volumen_exacto(d):
+    return np.pi ** (d / 2) / gamma(d / 2 + 1)
+
+
+def volumen_grilla(d, presupuesto):
+    """Regla del punto medio con k puntos por eje y k^d ≤ presupuesto."""
+    k = int(np.floor(presupuesto ** (1 / d) + 1e-9))
+    centros2 = (-1 + (2 * np.arange(k) + 1) / k) ** 2
+    suma = np.zeros(1)
+    for _ in range(d):  # suma de cuadrados de las k^d coordenadas, eje por eje
+        suma = (suma[:, None] + centros2[None, :]).ravel()
+    return 2**d * np.mean(suma <= 1), k
+
+
+def volumen_mc(d, n, rng, lote=2**16):
+    """Fracción de n puntos uniformes en [−1, 1]^d dentro de la esfera, por 2^d, y su error."""
+    adentro = sum(np.count_nonzero(np.sum(rng.uniform(-1, 1, (lote, d)) ** 2, axis=1) <= 1)
+                  for _ in range(n // lote))
+    p = adentro / n
+    return 2**d * p, 2**d * np.sqrt(p * (1 - p) / n)
+
+
+presupuesto = 2**20
+rng = np.random.default_rng(1)
+dimensiones = (2, 3, 4, 6, 8, 10, 12, 14, 16)
+err_grilla, err_mc, err_sigma = [], [], []
+print(" d    k   error grilla   error MC   σ_MC estimado   fracción adentro p")
+for d in dimensiones:
+    exacto = volumen_exacto(d)
+    grilla, k = volumen_grilla(d, presupuesto)
+    mc, sigma = volumen_mc(d, presupuesto, rng)
+    err_grilla.append(abs(grilla - exacto) / exacto)
+    err_mc.append(abs(mc - exacto) / exacto)
+    err_sigma.append(sigma / exacto)
+    print(f"{d:>2} {k:>5}   {err_grilla[-1]:>11.1e}   {err_mc[-1]:>8.1e}   "
+          f"{err_sigma[-1]:>13.1e}   {exacto / 2**d:>18.1e}")
+```
+
+```{python}
+#| label: fig-hiperesfera
+#| fig-cap: "Izquierda: error relativo de la grilla y de Monte Carlo en función de la dimensión, con 2^20 evaluaciones. Cada punto de Monte Carlo es una sola corrida, así que se aparta de la línea, que es la fórmula del error relativo esperado, √((1−p)/(pn)). Derecha: fracción p de puntos del cubo que cae dentro de la esfera."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+ds = np.arange(2, 17)
+p = volumen_exacto(ds) / 2.0**ds
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 3.6))
+ax1.semilogy(dimensiones, err_grilla, "s", color="C0", label="grilla")
+ax1.semilogy(dimensiones, err_mc, "o", color="C1", label="Monte Carlo")
+ax1.semilogy(ds, np.sqrt((1 - p) / (p * presupuesto)), "--", color="C1",
+             label="$\\sqrt{(1-p)/(pn)}$")
+ax1.set(xlabel="dimensión $d$", ylabel="error relativo")
+ax1.legend()
+ax1.grid(alpha=0.25, which="both")
+ax2.semilogy(ds, p, "o-", color="C2")
+ax2.set(xlabel="dimensión $d$", ylabel="fracción adentro $p=V_d/2^d$")
+ax2.grid(alpha=0.25, which="both")
+fig.tight_layout()
+plt.show()
+```
+
+Lo que muestran la tabla y la figura:
+
+- **Grilla:** gana en dos dimensiones. Su error pasa a ser mayor que el de
+  Monte Carlo desde $d=4$ y crece mucho con $d$. Con $k$ puntos por eje su
+  error baja como una potencia de $k$, y $k=n^{1/d}$: con el presupuesto fijo
+  quedan pocos puntos por eje, tres en $d=12$. La indicatriz de la esfera no
+  es una función suave, así que el exponente real de la grilla es algo peor
+  que $k^{-2}$; la conclusión no cambia.
+- **Monte Carlo:** el error **también crece con $d$**, pero mucho más
+  despacio. Lo que no depende de $d$ es el exponente: sigue bajando como
+  $n^{-1/2}$.
+- **De dónde sale la dependencia.** El error relativo de este estimador es
+  $\sqrt{(1-p)/(pn)}$, con $p=V_d/2^d$ la fracción de puntos que cae adentro.
+  A medida que $d$ crece, la esfera ocupa una fracción cada vez menor del
+  cubo: $p$ vale $0{,}79$ en $d=2$ y $3\times10^{-4}$ en $d=12$, uno de cada
+  tres mil puntos. Cuantos menos aciertos, mayor el error relativo.
+- **Qué rescatar:** la dependencia con $d$ está en el prefactor y se estima
+  con la misma corrida (la columna $\sigma_{MC}$). La grilla, en cambio,
+  no avisa.
+
+## 2. Números pseudoaleatorios
+
+Los números "al azar" de la computadora salen de una recurrencia
+determinista: dado el estado inicial, la **semilla**, la secuencia es siempre
+la misma. Eso es una ventaja: un resultado Monte Carlo se reproduce
+exactamente si se declara la semilla.
+
+```{python}
+#| label: semillas
+
+a = np.random.default_rng(2026).random(3)
+b = np.random.default_rng(2026).random(3)
+print(a, b, np.array_equal(a, b))
+
+# Corridas independientes: una semilla raíz y secuencias hijas que no se solapan.
+hijas = np.random.SeedSequence(2026).spawn(4)
+generadores = [np.random.default_rng(s) for s in hijas]
+print([g.random() for g in generadores])
+```
+
+Tres reglas para el curso:
+
+- usar `np.random.default_rng(semilla)`, que por defecto es el generador
+  PCG64, y pasarlo como argumento a las funciones;
+- no usar el estado global `np.random.seed`: cualquier función que sortee lo
+  modifica;
+- para repetir un mismo experimento con corridas independientes, sembrar con
+  `SeedSequence.spawn`, no con semillas consecutivas elegidas a mano. Dos
+  semillas distintas para dos cálculos distintos, como en la sección 1, no
+  tienen ese problema.
+
+> Un resultado que cambia con la semilla más que su barra de error tiene un
+> problema: o la barra está mal, o una corrida no alcanza.
+
+## 3. Muestreo por importancia
+
+Desde acá usamos un modelo **de juguete** con solución de referencia: una
+partícula clásica de masa $m$ que se mueve en una dimensión dentro del **pozo
+anarmónico**
+
+$$
+V(x)=\frac{x^2}{2}+\frac{x^4}{4},
+$$
+
+en contacto con un baño térmico grande a temperatura $T$, con $k_B=1$ (la
+temperatura se mide en unidades de energía). Estrictamente, el sistema que está
+en equilibrio es «partícula + baño»: el baño puede intercambiar energía con la
+partícula. No simularemos esa dinámica; vamos a calcular sus promedios de
+equilibrio. No es un fluido, pero sirve para probar los métodos donde
+conocemos la respuesta. Después hay que preguntarse qué pasa con muchas
+partículas, que es el caso que nos interesa.
+
+El estado microscópico completo es $(x,p)$, posición y momento. En el ensamble
+canónico su distribución es
+
+$$
+\rho(x,p)=\frac{e^{-[p^2/(2m)+V(x)]/T}}{\mathcal Z}.
+$$
+
+En esta clase sólo mediremos cantidades que dependen de la posición, $A(x)$.
+La integral sobre $p$ es gaussiana, aparece tanto en el numerador como en el
+denominador de esos promedios y se cancela. Por eso basta con la distribución
+marginal de posiciones,
+
+$$
+\pi(x)=\frac{e^{-V(x)/T}}{Z},\qquad
+Z=\int e^{-V(x)/T}\,dx .
+$$
+
+Desde acá, una **configuración** será simplemente un valor de $x$. Equilibrio
+térmico no quiere decir que la partícula esté quieta ni que tenga energía fija:
+quiere decir que la distribución de $x$ ya no cambia. Si repitiéramos el
+experimento muchas veces, o midiéramos tras tiempos suficientemente separados,
+el histograma de posiciones tendería a $\pi(x)$.
+
+- Las posiciones de **energía alta** son menos probables.
+- A temperatura **baja**, la partícula queda cerca del mínimo del pozo.
+- A temperatura **alta**, explora más lejos.
+- $Z$ es la **función de partición**: la constante que hace que $\pi$ sume
+  uno.
+
+**Qué queremos calcular.** El promedio de Boltzmann de una cantidad $A(x)$,
+
+$$
+\langle A\rangle=\frac{\int A(x)\,e^{-V(x)/T}\,dx}{Z}.
+$$
+
+Tomamos $A=x^2$, el cuadrado de la distancia al centro del pozo. Por tres
+razones:
+
+- **Mide algo físico:** cuánto se aleja la partícula del centro, es decir, el
+  ancho de la distribución.
+- **Tiene una referencia sencilla:** en el oscilador armónico se sabe cuánto
+  vale (lo usamos en la sección 5).
+- **Es exigente con el muestreo:** $x^2$ crece justo en las colas, donde hay
+  poca probabilidad. Un muestreo que las ignore se nota enseguida.
+
+En una dimensión calculamos $\langle x^2\rangle$ con cuadratura. Ésa es la
+**referencia independiente** de toda la clase.
+
+```{python}
+#| label: pozo
+
+def V(x):
+    return x**2 / 2 + x**4 / 4
+
+
+def promedio_exacto(A, T):
+    """⟨A⟩ de Boltzmann en el pozo anarmónico, por cuadratura."""
+    peso = lambda x: np.exp(-V(x) / T)
+    Z = quad(peso, -np.inf, np.inf)[0]
+    return quad(lambda x: A(x) * peso(x), -np.inf, np.inf)[0] / Z
+
+
+T = 1.0
+x2_exacto = promedio_exacto(lambda x: x**2, T)
+print(f"⟨x²⟩ a T = {T}: {x2_exacto:.6f}")
+```
+
+Para ver de dónde sale el peso, primero sorteemos posiciones uniformes en un
+intervalo grande $[-L,L]$. El factor común $2L/n$ de las sumas que aproximan
+las integrales se cancela entre numerador y denominador:
+
+$$
+\langle A\rangle\approx
+\frac{\sum_{k=1}^n A(x_k)\,\tilde w(x_k)}
+     {\sum_{k=1}^n \tilde w(x_k)},
+\qquad x_k\sim\operatorname{Unif}[-L,L],
+\qquad \tilde w(x)=e^{-V(x)/T}.
+$$
+
+Así, cada punto aporta según su **peso de Boltzmann**: las posiciones con
+potencial alto casi no pesan. Para $L=5$ la mayoría de los puntos uniformes
+cae precisamente donde ese peso es despreciable. Mejor es sortear de una
+distribución $q(x)$ parecida a la buscada. Éste es el paso importante del
+método: antes de calcular pesos, elegimos **de dónde saldrán los puntos**,
+
+$$
+x_1,\ldots,x_n\sim q(x).
+$$
+
+La distribución $q$ se llama **propuesta**. Determina en qué regiones vamos a
+gastar muestras: la uniforme es una propuesta posible, pero una gaussiana
+centrada en el mínimo del pozo concentra los puntos donde esperamos que esté
+la partícula. Al cambiar la propuesta, corregimos por la densidad con que se
+propuso cada punto:
+
+$$
+w(x)\propto\frac{e^{-V(x)/T}}{q(x)}.
+$$
+
+La constante de proporcionalidad es irrelevante: se cancela en el cociente
+
+$$
+\langle A\rangle\approx\frac{\sum_k w_k A(x_k)}{\sum_k w_k},\qquad x_k\sim q .
+$$
+
+Esto no simula el movimiento de la partícula ni el baño térmico; es una forma
+de calcular un promedio de equilibrio con configuraciones independientes
+$x_k\sim q$.
+
+La distribución del oscilador armónico,
+$q(x)=(2\pi T)^{-1/2}e^{-x^2/(2T)}$, es una buena elección: al dividir por
+$q$, el peso que queda es proporcional a $e^{-x^4/(4T)}$, que nunca supera
+uno.
+
+```{python}
+#| label: importancia
+
+def con_uniforme(n, rng, borde=5.0):
+    x = rng.uniform(-borde, borde, n)
+    # w es proporcional a e^{-V/T}; el factor 2*borde se cancela.
+    w = np.exp(-V(x) / T)
+    return np.sum(w * x**2) / np.sum(w)
+
+
+def con_armonico(n, rng):
+    x = rng.normal(0, np.sqrt(T), n)
+    # w es proporcional a e^{-x^4/(4T)}; la normalización se cancela.
+    w = np.exp(-(x**4) / (4 * T))
+    return np.sum(w * x**2) / np.sum(w)
+
+
+rng = np.random.default_rng(3)
+for nombre, estimador in (("uniforme", con_uniforme), ("armónica", con_armonico)):
+    estimaciones = np.array([estimador(1000, rng) for _ in range(500)])
+    print(f"{nombre:>9}: media {estimaciones.mean():.4f}, dispersión entre corridas {estimaciones.std(ddof=1):.4f}")
+```
+
+Con el mismo número de puntos, la dispersión baja casi a la mitad: para el
+mismo error hacen falta unas tres veces menos muestras.
+
+¿Escala a muchas partículas? Para verlo pasamos del juguete a $d$ partículas:
+supongamos $d$ osciladores anarmónicos independientes muestreados con la
+gaussiana. El peso de cada configuración es el producto de $d$ pesos. Una
+medida de cuántas muestras pesan de verdad es el **tamaño efectivo**
+$n_\text{ef}=(\sum w)^2/\sum w^2$.
+
+```{python}
+#| label: tamano-efectivo
+
+rng = np.random.default_rng(4)
+n = 10_000
+for d in (1, 3, 10, 30, 100):
+    x = rng.normal(0, np.sqrt(T), (n, d))
+    log_w = -np.sum(x**4, axis=1) / (4 * T)
+    w = np.exp(log_w - log_w.max())
+    print(f"d = {d:>3}: n_ef / n = {np.sum(w) ** 2 / np.sum(w**2) / n:.1e}")
+```
+
+En cien dimensiones, de diez mil muestras pesan unas pocas. El peso de una
+configuración entera es el producto de muchos factores, y uno solo de ellos
+domina. Un fluido de $N$ partículas en tres dimensiones tiene $3N$
+coordenadas, 768 para las 256 partículas de la clase 05: bastante más que las
+cien de arriba. Para ese fluido no hay ninguna $q$ fácil de sortear que se le
+parezca lo suficiente.
+
+### 3.1. Un ejemplo ya visto: el haz de la clase 03
+
+Este método no es nuevo para nosotros. En la sección 6.3 de la clase 03
+sorteamos el parámetro de impacto $b$ uniforme en $[0,b_{\max}]$ y le dimos a
+cada partícula un peso $2\pi b\,b_{\max}/N$. Ese factor no era arbitrario.
+
+- **Lo que queríamos:** un haz real, que reparte las partículas parejo por
+  unidad de **área**. La fracción de partículas con $b<B$ es
+  $B^2/b_{\max}^2$.
+- **Lo que sorteamos:** $b$ uniforme. Con $b_{\max}=4$, el 25 % de las
+  partículas cae en $b<1$. En el haz real es el 6 % ($\pi\cdot1^2$ sobre
+  $\pi\cdot4^2$). Sorteamos de más en $b$ chico.
+- **La corrección:** el factor $b$ del peso achica a las partículas de $b$
+  chico, que sobran.
+
+El peso es el cociente entre la densidad que queremos, $p(b)=2b/b_{\max}^2$,
+y la que sorteamos, $q(b)=1/b_{\max}$:
+
+$$
+w=\frac{p(b)}{q(b)}=\frac{2b}{b_{\max}}.
+$$
+
+Multiplicado por el área total del haz, $\pi b_{\max}^2/N$, da el peso de la
+clase 03.
+
+Aquí la corrección era sencilla porque $q$ se parecía a $p$ y era fácil de
+sortear. Con el fluido eso no pasa, y hace falta otra idea: la de la sección
+siguiente.
+
+## 4. Metropolis
+
+Queremos configuraciones distribuidas según
+
+$$
+\pi(x)=\frac{e^{-V(x)/T}}{Z},
+$$
+
+y no conocemos $Z$, que es justamente la integral difícil. La idea de
+Metropolis, Rosenbluth, Rosenbluth, Teller y Teller (1953) es no sortear cada
+configuración desde cero, sino **caminar**: generar una sucesión
+$x_0,x_1,x_2,\dots$ donde cada estado depende sólo del anterior. Una sucesión
+así es una **cadena de Markov**. Si la regla de paso está bien elegida, la
+distribución de $x_t$ tiende a $\pi$ para $t$ grande, cualquiera sea $x_0$.
+
+¿Qué quiere decir «bien elegida»? Si la distribución de los estados actuales
+ya fuese $\pi$, queremos que, después de un paso, siga siendo $\pi$. Para eso,
+en cada región debe entrar tanta probabilidad como sale. Una manera sencilla,
+aunque más fuerte de lo necesario, es imponer esa compensación **par a par**:
+el flujo de probabilidad de $x$ a $y$ debe igualar el de $y$ a $x$. Es el
+**balance detallado**,
+
+$$
+\pi(x)\,P(x\to y)=\pi(y)\,P(y\to x).
+$$
+
+No es la única condición que sirve, pero es una receta constructiva: si la
+cumplimos para todo par, la distribución $\pi$ queda estacionaria.
+
+Construyamos ahora una regla que la cumpla. Primero proponemos un posible
+destino $y$ con una distribución $q(y\mid x)$; después aceptamos la propuesta
+con probabilidad $a(x,y)$. Para $x\ne y$, la transición completa es
+
+$$
+P(x\to y)=q(y\mid x)\,a(x,y).
+$$
+
+Elegimos una propuesta simétrica, $y=x+u$ con $u$ uniforme en
+$[-\delta,\delta]$, para la cual $q(y\mid x)=q(x\mid y)$. El balance detallado
+entonces pide
+
+$$
+\frac{a(x,y)}{a(y,x)}=
+\frac{\pi(y)}{\pi(x)}=e^{-[V(y)-V(x)]/T}.
+$$
+
+Este cociente **no determina una única regla**: hay muchas parejas de
+probabilidades entre cero y uno que lo cumplen. Metropolis agrega una elección
+práctica: **nunca rechazar una propuesta hacia una configuración al menos tan
+probable**. Es la elección que acepta tanto como permite el balance detallado.
+
+Llamemos $r=\pi(y)/\pi(x)$. Si $r\ge1$ (equivalentemente,
+$V(y)\le V(x)$), elegimos $a(x,y)=1$. El cociente obliga entonces a que la
+propuesta inversa tenga $a(y,x)=1/r$, que sí es una probabilidad válida. Si
+$r<1$, intercambiamos los papeles de $x$ e $y$: aceptamos la ida con
+$a(x,y)=r$ y la vuelta con probabilidad uno. Las dos decisiones anteriores se
+escriben de forma abreviada como
+
+$$
+a(x,y)=\min\left(1,\frac{\pi(y)}{\pi(x)}\right)
+\quad = \quad\min\left(1,e^{-[V(y)-V(x)]/T}\right).
+$$
+
+Es decir: si el destino es más probable, el cociente es mayor que uno y el
+mínimo vale uno; si es menos probable, el mínimo vale exactamente ese
+cociente. La fórmula no introduce una regla nueva: es sólo una manera corta
+de escribir las dos decisiones anteriores.
+
+Ésta es la regla de Metropolis. No es la única que preserva $\pi$, pero evita
+rechazar descensos de energía sin necesidad. Si se rechaza, el siguiente estado
+es otra vez $x$. Esas repeticiones completan la probabilidad de quedarse en
+$x$ y hacen que las probabilidades de transición sumen uno. Sólo aparecen
+cocientes de $\pi$: la función de partición $Z$ se cancela.
+
+La receta queda así:
+
+1. **Propuesta:** $y=x+u$, con $u$ uniforme en $[-\delta,\delta]$. Es simétrica:
+   proponer $y$ desde $x$ es tan probable como proponer $x$ desde $y$.
+2. **Aceptación:** se acepta $y$ con probabilidad
+   $\min\left(1,e^{-[V(y)-V(x)]/T}\right)$. Si se rechaza, **el estado
+   siguiente es otra vez $x$**.
+
+```{python}
+#| label: metropolis
+
+def metropolis(V, T, x0, paso, pasos, rng):
+    """Cadenas de Metropolis independientes, una por cada elemento de x0.
+
+    Propone x + u con u uniforme en [−paso, paso] y acepta con probabilidad
+    min(1, exp(−ΔV/T)). Si rechaza, el estado se repite. Devuelve la cadena,
+    con forma (pasos, cadenas), y qué propuestas se aceptaron.
+    """
+    x = np.array(x0, dtype=float)
+    cadena = np.empty((pasos,) + x.shape)
+    aceptadas = np.empty((pasos,) + x.shape, dtype=bool)
+    for k in range(pasos):
+        y = x + rng.uniform(-paso, paso, x.shape)
+        # min(1, e^{-ΔV/T}) escrito como e^{min(0, -ΔV/T)}: evita el desborde si ΔV es muy negativo.
+        prob_aceptar = np.exp(np.minimum(0.0, -(V(y) - V(x)) / T))
+        acepta = rng.random(x.shape) < prob_aceptar
+        x = np.where(acepta, y, x)
+        cadena[k], aceptadas[k] = x, acepta
+    return cadena, aceptadas
+
+
+cadena, aceptadas = metropolis(V, T, [0.0], paso=0.5, pasos=200_000, rng=np.random.default_rng(5))
+x = cadena[:, 0]
+print(f"fracción de propuestas aceptadas: {aceptadas.mean():.2f}")
+print(f"⟨x²⟩ Metropolis = {np.mean(x**2):.4f}   cuadratura = {x2_exacto:.4f}")
+```
+
+El control directo es comparar el histograma de la cadena con $\pi(x)$, que
+conocemos por cuadratura. Una iteración de la cadena produce siempre una
+muestra: si se acepta, $x_{t+1}=y$; si se rechaza, $x_{t+1}=x_t$. Por lo tanto,
+la muestra que estima promedios es **toda** la secuencia
+$x_1,\ldots,x_n$, incluidas las repeticiones.
+
+Comparamos con un error tentador: guardar sólo los saltos aceptados porque
+«los rechazados no son un estado nuevo». Eso descarta justamente el tiempo que
+la cadena pasa en cada posición.
+
+```{python}
+#| label: solo-aceptados
+
+x_aceptados = x[aceptadas[:, 0]]
+x2_todos = np.mean(x**2)
+x2_aceptados = np.mean(x_aceptados**2)
+print(f"⟨x²⟩ contando cada iteración = {x2_todos:.4f}")
+print(f"⟨x²⟩ sólo saltos aceptados    = {x2_aceptados:.4f}")
+print(f"⟨x²⟩ cuadratura               = {x2_exacto:.4f}")
+
+bordes = np.linspace(-2.5, 2.5, 61)
+centros = 0.5 * (bordes[1:] + bordes[:-1])
+Z = quad(lambda s: np.exp(-V(s) / T), -np.inf, np.inf)[0]
+densidad_exacta = np.exp(-V(centros) / T) / Z
+```
+
+```{python}
+#| label: fig-histograma
+#| fig-cap: "La muestra correcta de Metropolis contiene el estado después de cada iteración, incluidas las repeticiones tras un rechazo. Descartarlas sesga el histograma y también ⟨x²⟩."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.8))
+ax.hist(x, bordes, density=True, alpha=0.5, label="cada iteración (correcto)")
+ax.hist(x_aceptados, bordes, density=True, histtype="step", lw=1.5,
+        label="sólo saltos aceptados (sesgado)")
+ax.plot(centros, densidad_exacta, "k", lw=1, label="$e^{-V/T}/Z$, cuadratura")
+ax.set(xlabel="$x$", ylabel="densidad")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Cuando se rechaza, la cadena **se queda** donde estaba y esa estancia cuenta
+como una observación. En las colas, donde $V$ crece rápido, las propuestas que
+se alejan del centro suben mucho la energía y se rechazan seguido: las
+repeticiones son lo que da a esos estados el peso que les corresponde.
+Descartarlas equivale a medir sólo las ocasiones en que la cadena salta, no el
+tiempo que pasa en cada $x$. La lista de sólo aceptados tiene otra distribución
+(subrepresenta las colas), y por eso $\langle x^2\rangle$ sale más chico.
+
+### 4.1. El paso de la propuesta
+
+El tamaño del paso $\delta$ no aparece en el balance detallado: cualquier
+$\delta$ da una cadena con la misma distribución estacionaria.
+
+```{python}
+#| label: dos-pasos
+
+rng = np.random.default_rng(6)
+# 20 cadenas de 10 000 pasos para cada paso, descartando los primeros 1000.
+cadenas_paso = {paso: metropolis(V, T, np.zeros(20), paso, 11_000, rng)[0][1000:].ravel()
+                for paso in (0.5, 3.0)}
+for paso, xs in cadenas_paso.items():
+    print(f"paso {paso}: ⟨x²⟩ = {np.mean(xs**2):.4f}")
+```
+
+```{python}
+#| label: fig-dos-pasos
+#| fig-cap: "Histogramas de Metropolis con dos pasos de propuesta distintos, frente a la densidad exacta."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+for paso, xs in cadenas_paso.items():
+    ax.hist(xs, bordes, density=True, histtype="step", lw=1.5, label=f"paso {paso}")
+ax.plot(centros, densidad_exacta, "k", lw=1, label="cuadratura")
+ax.set(xlabel="$x$", ylabel="densidad")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Que el resultado no dependa del paso es un control de que la cadena es
+correcta. Qué paso **conviene** es otra pregunta, que no contesta el
+histograma: la van a estudiar en el TP 05.
+
+## 5. Aplicación: el pozo a varias temperaturas
+
+En el oscilador armónico, por equipartición, $\langle x^2\rangle=T$.
+
+**Antes de correr:** en el pozo anarmónico, ¿$\langle x^2\rangle$ es mayor o
+menor que $T$? ¿A qué temperatura esperan que la diferencia sea más grande?
+
+Hay además un control que no necesita cuadratura. Integrando por partes,
+$\int x\,V'(x)\,e^{-V/T}\,dx=T\,Z$, de modo que para **cualquier** potencial
+que crezca lo suficiente
+
+$$
+\langle x\,V'(x)\rangle=T .
+$$
+
+Es el teorema del virial, la misma idea que usamos para la presión en la clase
+05.
+
+```{python}
+#| label: temperaturas
+
+def dV(x):
+    return x + x**3
+
+
+rng = np.random.default_rng(11)
+print("    T   ⟨x²⟩ Metropolis   ⟨x²⟩ cuadratura   ⟨x V'⟩ Metropolis")
+for T_k in (0.25, 1.0, 4.0):
+    xs = metropolis(V, T_k, np.zeros(50), 0.5, 21_000, rng)[0][1000:]  # 50 cadenas
+    print(f"{T_k:>5}   {np.mean(xs**2):>15.4f}   {promedio_exacto(lambda s: s**2, T_k):>15.4f}"
+          f"   {np.mean(xs * dV(xs)):>17.4f}")
+```
+
+Los números se parecen a la cuadratura, pero ¿la diferencia es compatible con
+el azar? Todavía no podemos decirlo: falta la barra de error.
+
+## 6. ¿Qué incertidumbre tiene una corrida?
+
+Una corrida produce un **estimador**, por ejemplo $\bar A$, y no directamente
+el valor exacto $\langle A\rangle$. Si repitiéramos la corrida completa con
+otras semillas, obtendríamos otros valores de $\bar A$. La barra de error
+$\Delta\bar A$ estima la desviación estándar de esos promedios entre corridas:
+
+$$
+\bar A\ \pm\ \Delta\bar A.
+$$
+
+Una vez descartado el transitorio, llamaremos $x_t$ al estado de la cadena
+después del paso $t$ y $A_t=A(x_t)$ al valor del observable en ese estado. En
+este ejemplo, $A_t=x_t^2$.
+
+No es la dispersión de los valores individuales $A_t$. Tampoco protege contra
+todo: primero hay que eliminar el sesgo de la condición inicial; después
+estimamos la incertidumbre aleatoria que queda en el promedio. Éstos son dos
+problemas distintos.
+
+### 6.1. Termalización
+
+Antes de poner una barra, la cadena debe haber olvidado de dónde arrancó. La
+cadena converge a $\pi$ **desde cualquier** $x_0$, pero tarda. Arrancamos
+lejos, en $x_0=6$, donde $V/T$ vale más de 300.
+
+```{python}
+#| label: termalizacion
+
+lejos = metropolis(V, T, [6.0], 0.5, 400, np.random.default_rng(8))[0][:, 0]
+print(f"primer paso con |x| < 1.5: {np.argmax(np.abs(lejos) < 1.5)}")
+```
+
+```{python}
+#| label: fig-termalizacion
+#| fig-cap: "Los primeros 400 pasos de una cadena que arranca en x0 = 6. La banda gris es ±√⟨x²⟩ de la cuadratura."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(7, 3.2))
+ax.plot(lejos, lw=0.8)
+ax.axhspan(-np.sqrt(x2_exacto), np.sqrt(x2_exacto), color="0.85")
+ax.set(xlabel="paso", ylabel="$x$")
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Los pasos del transitorio no son muestras de $\pi$: se descartan. Si los
+incluyéramos, el promedio tendría un **sesgo sistemático**; ninguna barra de
+error calculada después arreglaría ese sesgo. Los criterios son los de la
+equilibración de la clase 05: los observables fluctúan alrededor de un valor
+estable, y el resultado no cambia si se descarta el doble. Desde ahora usamos
+una cadena ya termalizada.
+
+### 6.2. Muestras correlacionadas
+
+Corremos ahora una cadena larga y miramos $A=x^2$. Los valores individuales
+$A_t$ fluctúan; su desviación estándar muestral es $s_A$. Pero lo que queremos
+es la incertidumbre del promedio
+
+$$
+\bar A=\frac1n\sum_{t=1}^n A_t.
+$$
+
+Si los $n$ valores fueran independientes, sería
+$\Delta\bar A=s_A/\sqrt n$. En una cadena de Markov no lo son: cada estado sale
+del anterior. Dos valores cercanos se parecen y aportan menos información que
+dos valores independientes. Llamamos **error ingenuo** a $s_A/\sqrt n$ cuando
+se lo calcula como si cada paso de la cadena fuera independiente. Medimos esa
+semejanza con la autocorrelación, como en la clase 05,
+
+$$
+C(k)=\frac{\langle\delta A_t\,\delta A_{t+k}\rangle}{\langle\delta A^2\rangle}.
+$$
+
+Acá $\delta A_t=A_t-\langle A\rangle$; en una sola corrida reemplazamos el
+promedio desconocido $\langle A\rangle$ por $\bar A$. Para muestras
+correlacionadas, la incertidumbre del promedio es aproximadamente
+
+$$
+\Delta\bar A=\frac{s_A}{\sqrt n}\sqrt{2\tau_\text{int}},\qquad
+\tau_\text{int}=\frac12+\sum_{k=1}^{\infty}C(k),
+$$
+
+El **tiempo de autocorrelación integrado** $\tau_\text{int}$ es el área bajo
+la autocorrelación normalizada, medida en pasos de la cadena (no es un tiempo
+físico). El factor $2\tau_\text{int}$ dice cuánto inflan las correlaciones la
+varianza del promedio. Con $n$ grande frente a $\tau_\text{int}$, la cadena de
+$n$ pasos equivale a sólo
+
+$$
+n_\text{ef}=\frac{n}{2\tau_\text{int}}
+$$
+
+muestras independientes efectivas. Para muestras independientes $C(k)=0$ para
+$k>0$, de modo que $2\tau_\text{int}=1$ y $n_\text{ef}=n$. En la práctica la
+suma se corta en una ventana $W$: más allá, $C(k)$ es sólo ruido y sumarlo
+agrega varianza sin agregar señal.
+
+**Acumular corridas.** Varias cadenas independientes que muestrean la misma
+$\pi$ son más estadística para el mismo promedio, aunque tengan longitudes
+distintas. Después de descartar el transitorio de **cada** una, se pueden
+juntar sus datos:
+
+$$
+\bar A=\frac{1}{N}\sum_i\sum_{t=1}^{n_i}A_{i,t},
+\qquad N=\sum_i n_i.
+$$
+
+Como no hay correlación entre cadenas independientes, sus tamaños efectivos se
+suman aproximadamente: $n_\text{ef}=\sum_i n_{\text{ef},i}$. Por eso la barra
+baja al acumular corridas. Para estimarla por autocorrelación o por bloques,
+se analiza cada cadena por separado: no se forman bloques ni retrasos que
+crucen de una cadena a otra.
+
+En dinámica molecular se aplica igual: cada trayectoria ya equilibrada aporta
+mediciones de presión, energía o cualquier otro observable. Se pueden acumular
+réplicas sólo si muestrean el mismo estado de equilibrio: en un ensamble NVT,
+el mismo $N$, $V$, $T$, potencial y termostato; en NVE, además, la misma
+energía y las mismas restricciones. En la práctica se forman bloques dentro de
+cada trayectoria y se juntan los promedios de bloque de todas las réplicas.
+
+```{python}
+#| label: autocorrelacion-mc
+
+pasos = 2**17
+x = metropolis(V, T, [0.0], 0.5, pasos + 1000, np.random.default_rng(9))[0][1000:, 0]
+A = x**2
+a = A - A.mean()
+retrasos = np.arange(201)
+C = np.array([np.mean(a[: len(a) - k] * a[k:]) for k in retrasos]) / np.mean(a**2)
+tau_W = 0.5 + np.cumsum(C[1:])  # τ_int con la suma cortada en W = 1, 2, ...
+cruces = np.flatnonzero(C < 0)
+W = cruces[0] if len(cruces) else len(C)  # primera vez que C cruza cero (o toda la ventana)
+tau_int = 0.5 + C[1:W].sum()
+
+error_ingenuo = A.std(ddof=1) / np.sqrt(len(A))
+error_tau = error_ingenuo * np.sqrt(2 * tau_int)
+n_ef = len(A) / (2 * tau_int)
+print(f"⟨x²⟩ = {A.mean():.4f}   (cuadratura {x2_exacto:.4f})")
+print(f"τ_int = {tau_int:.1f} pasos, con la suma cortada en W = {W}")
+print(f"n = {len(A):,} pasos equivale a n_ef = {n_ef:.0f} muestras independientes")
+print(f"error ingenuo = {error_ingenuo:.5f}   error con τ_int = {error_tau:.5f}")
+```
+
+```{python}
+#| label: fig-autocorrelacion-mc
+#| fig-cap: "Autocorrelación de x² en la cadena de Metropolis y el tiempo de autocorrelación integrado en función de la ventana W."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, (ax_C, ax_tau) = plt.subplots(1, 2, figsize=(9, 3.3))
+ax_C.plot(retrasos, C, ".-", ms=3)
+ax_C.axhline(0, color="black", lw=0.8)
+ax_C.set(xlabel="$k$ (pasos)", ylabel="$C(k)$")
+ax_tau.plot(retrasos[1:], tau_W)
+ax_tau.axvline(W, color="0.6", ls="--")
+ax_tau.set(xlabel="ventana $W$ (pasos)", ylabel="$\\tau_\\mathrm{int}(W)$")
+for ax in (ax_C, ax_tau):
+    ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+### 6.3. Análisis por bloques
+
+Estimar $\tau_\text{int}$ exige elegir la ventana. El **análisis por bloques**
+llega a la misma barra sin calcular $C(k)$. Se divide la serie en bloques
+consecutivos de $b$ muestras y se promedia cada bloque. Con bloques chicos,
+los promedios de bloques vecinos todavía se parecen y la barra subestima la
+incertidumbre. Si $b\gg\tau_\text{int}$, esos promedios son casi
+independientes: aplicarles la fórmula ingenua da la barra correcta de
+$\bar A$. Aumentamos $b$ hasta que esa barra llega a una **meseta**.
+
+```{python}
+#| label: bloques
+
+def error_con_bloques(serie, b):
+    """Error del promedio tratando como independientes los promedios de bloques de b muestras.
+
+    `serie` puede tener forma (n,) o (n, cadenas); las muestras que no completan
+    un bloque se descartan.
+    """
+    m = len(serie) // b
+    promedios = serie[: m * b].reshape(m, b, *serie.shape[1:]).mean(axis=1)
+    return promedios.std(axis=0, ddof=1) / np.sqrt(m)
+
+
+tamanos_bloque = 2 ** np.arange(0, 13)
+errores_bloque = np.array([error_con_bloques(A, b) for b in tamanos_bloque])
+for b, e in zip(tamanos_bloque, errores_bloque):
+    print(f"b = {b:>5}: {e:.5f}")
+```
+
+```{python}
+#| label: fig-bloques
+#| fig-cap: "Error del promedio de x² en función del tamaño de bloque, frente al error ingenuo y al error obtenido con τ_int."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.8))
+ax.semilogx(tamanos_bloque, errores_bloque, "o-", base=2, label="bloques")
+ax.axhline(error_ingenuo, color="C1", ls=":", label="ingenuo")
+ax.axhline(error_tau, color="C2", ls="--", label="con $\\tau_\\mathrm{int}$")
+ax.set(xlabel="tamaño de bloque $b$ (pasos)", ylabel="error de $\\langle x^2\\rangle$")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Con bloques de una muestra se recupera el error ingenuo. La curva sube y se
+aplana donde $b$ supera holgadamente a $\tau_\text{int}$: el valor de esa
+meseta es nuestra estimación de $\Delta\bar A$. Para bloques demasiado grandes
+quedan pocos promedios de bloque y la estimación se vuelve ruidosa; buscamos
+una meseta ancha, no el último punto. El cociente al cuadrado entre la meseta
+y el error ingenuo es $2\tau_\text{int}$: dos maneras distintas de medir
+lo mismo.
+
+### 6.4. ¿La barra cubre el valor verdadero?
+
+En este juguete conocemos el resultado por cuadratura, algo que normalmente
+no ocurre. Lo aprovechamos para comprobar la barra: una barra de $1\sigma$
+correcta debería contener el valor exacto en aproximadamente 68 % de muchas
+corridas independientes. No es una garantía para una corrida individual.
+Ponemos a prueba el método con 200 cadenas, cada una con su barra ingenua y su
+barra por bloques.
+
+**Antes de correr:** ¿en qué fracción de las 200 corridas esperan que la barra
+ingenua contenga el valor exacto?
+
+```{python}
+#| label: cobertura
+
+cadenas = metropolis(V, T, np.zeros(200), 0.5, 2**14 + 1000, np.random.default_rng(10))[0][1000:]
+A_cadenas = cadenas**2
+promedios = A_cadenas.mean(axis=0)
+barra_ingenua = error_con_bloques(A_cadenas, 1)
+barra_bloques = error_con_bloques(A_cadenas, 256)
+
+print(f"dispersión real de los 200 promedios: {promedios.std(ddof=1):.4f}")
+print(f"barra ingenua típica: {barra_ingenua.mean():.4f}   barra por bloques típica: {barra_bloques.mean():.4f}")
+for nombre, barra in (("ingenua", barra_ingenua), ("bloques", barra_bloques)):
+    cubre = np.mean(np.abs(promedios - x2_exacto) < barra)
+    print(f"la barra {nombre} contiene el valor exacto en {100 * cubre:.0f} % de las corridas")
+```
+
+```{python}
+#| label: fig-cobertura
+#| fig-cap: "Desvío de cada una de las 200 corridas respecto de la cuadratura, medido en unidades de su propia barra de error. Si la barra es correcta, el histograma sigue una gaussiana de ancho uno."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+z = np.linspace(-6, 6, 300)
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+bordes_z = np.linspace(-8, 8, 41)
+ax.hist((promedios - x2_exacto) / barra_ingenua, bordes_z, density=True, alpha=0.5, label="barra ingenua")
+ax.hist((promedios - x2_exacto) / barra_bloques, bordes_z, density=True, histtype="step", lw=1.5,
+        label="barra por bloques")
+ax.plot(z, np.exp(-(z**2) / 2) / np.sqrt(2 * np.pi), "k", lw=1, label="gaussiana de ancho 1")
+ax.set(xlabel="(promedio − exacto) / barra", ylabel="densidad")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Ésta es la respuesta a la pregunta de la clase. La barra de error de un
+promedio Monte Carlo **estima la desviación estándar que tendría ese promedio
+si se repitiera la corrida con otra semilla**. Se reporta
+$\bar A\pm\Delta\bar A$, después de termalizar y con una barra que tenga en
+cuenta las correlaciones. Con muestras correlacionadas, la desviación estándar
+de la serie dividida por $\sqrt n$ no es la incertidumbre del promedio.
+
+### Discusión en grupos: un resultado plausible
+
+Un informe estudia el pozo anarmónico con un código de Metropolis propio:
+
+> El código se validó a $T=1$: da $\langle x^2\rangle=0.470\pm0.011$, con error
+> por bloques, frente a $0.4679$ de la cuadratura. Con el código validado
+> calculamos
+>
+> | $T$ | $\langle x^2\rangle$ |
+> |---:|---:|
+> | 0.25 | $1.12\pm0.04$ |
+> | 1 | $0.470\pm0.011$ |
+> | 4 | $0.176\pm0.004$ |
+>
+> A baja temperatura la partícula explora una región más amplia del pozo:
+> el término cuártico domina el comportamiento del sistema.
+
+Las barras de error están bien calculadas, con bloques en la meseta.
+
+1. ¿Qué afirmación física del informe tendría que haber hecho sonar una
+   alarma antes de cualquier control?
+2. ¿Qué control de esta clase, que no use la cuadratura, detectaría el
+   problema? ¿Qué valor debería dar?
+3. El código se validó y pasó. ¿Qué tenía de insuficiente esa validación?
+   Propongan un error de programación de una línea compatible con estos
+   números.
+
+## 7. Extensiones
+
+Metropolis no se limita a una partícula ni a variables continuas:
+
+- **Modelo de Ising:** espines $\pm1$ en una red, con una propuesta que invierte
+  un espín. Es el ejemplo clásico de transición de fase muestreada con
+  Metropolis.
+- **Recocido simulado:** Metropolis con una temperatura que baja lentamente,
+  usado como método de optimización.
+
+Ninguno se da en clase.
+
+## 8. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- el error de Monte Carlo baja como $n^{-1/2}$ en cualquier dimensión, y se
+  estima con la misma corrida;
+- el muestreo por importancia reduce la varianza, pero en muchas dimensiones
+  ninguna distribución simple alcanza;
+- Metropolis muestrea la distribución de Boltzmann sin conocer $Z$, y los
+  estados repetidos son parte de la muestra;
+- la distribución que muestrea no depende del paso de la propuesta;
+- las muestras de una cadena están correlacionadas, y el análisis por bloques
+  o $\tau_\text{int}$ dan la barra que sí cubre el valor verdadero.
+
+No podemos concluir que:
+
+- una cadena muestree $\pi$ desde el primer paso;
+- la desviación estándar de la serie, dividida por $\sqrt n$, sea el error del
+  promedio de una cadena;
+- un código validado en un punto sea válido en todos;
+- una barra de error bien calculada proteja contra un error sistemático.
+
+### Puente con el TP 05
+
+En la próxima clase empieza el
+[TP 05](../TPs/05-dinamica-molecular/index.md). Van a validar la dinámica
+molecular de la clase 05, estimar sus barras de error con bloques y
+compararla con Metropolis sobre el mismo fluido de Lennard-Jones.
+
+### Pregunta de salida
+
+> **Si repitieran su corrida con otra semilla, ¿cuánto esperarían que cambie el
+> resultado, y cómo lo saben sin repetirla?**
+
+## Nota histórica: de un solitario a la MANIAC
+
+### Un solitario en 1946
+
+- **Stanisław Ulam** se recuperaba de una enfermedad y jugaba solitarios.
+- Se preguntó con qué probabilidad un solitario sale bien. Contar las
+  combinaciones era inabordable.
+- Concluyó que era más práctico **jugar muchas partidas y contar cuántas
+  salen**.
+- **John von Neumann** vio que la misma idea servía para seguir neutrones en
+  Los Alamos, donde se trabajaba en el Proyecto Manhattan.
+- El nombre lo propuso **Nicholas Metropolis**, que lo relacionó con un tío de
+  Ulam que pedía dinero prestado a sus parientes porque "tenía que ir a Monte
+  Carlo".
+
+### Un artículo, cinco firmas
+
+- En 1953, en Los Alamos, el artículo de la sección 4 se calculó en la
+  **MANIAC** (*Mathematical Analyzer, Numerical Integrator and Computer*).
+  Simulaba discos duros en un plano.
+- Metropolis dirigía el proyecto de la computadora.
+- Medio siglo después, **Marshall Rosenbluth** recordó que el método y el
+  trabajo fueron suyos y de su esposa **Arianna**. **Arianna** cuenta que ella
+  escribió el programa. Metropolis habría aportado sobre todo tiempo de máquina.
+- Esa versión no es unánime. La reconstrucción de Gubernatis (2005) recoge
+  los testimonios y deja la autoría como tema abierto.
+- Ninguno de los cinco usó después el método, y con los años el rol de cada
+  uno quedó envuelto en misterio. Hoy el método se llama algoritmo de
+  **Metropolis** o de **Metropolis–Hastings**, por la generalización de
+  Hastings de 1970.
+
+![Nicholas Metropolis (de pie) y James Richardson, ingeniero jefe de la MANIAC, en 1953. Crédito: Los Alamos National Laboratory, vía Wikimedia Commons (atribución).](figuras/06-maniac-metropolis.jpg){width=45%}
+
+> **Para pensar.** El nombre del algoritmo dice poco sobre quién lo hizo. En
+> este curso declaran en `ai-use.md` quién hizo qué en cada trabajo. ¿Qué
+> pasaría con la reproducibilidad de un resultado si esa información se
+> perdiera?
+
+> **Para leer.** *MANIAC*, de Benjamín Labatut (Anagrama, 2023), es una
+> novela sobre John von Neumann. Su título es el de la computadora de Los
+> Alamos. Mezcla hechos y ficción: sirve para sentir la época, pero los datos
+> de esta nota no salen de ahí.
+
+![Portada de *MANIAC*, de Benjamín Labatut (Anagrama, 2023).](figuras/06-labatut-maniac.jpg){width=25%}
+
+## Referencias
+
+- N. Metropolis, "The Beginning of the Monte Carlo Method", *Los Alamos
+  Science*, número especial, 125–130 (1987).
+  <https://mcnpx.lanl.gov/pdf_files/Article_1987_LAS_Metropolis_125--130.pdf>
+- J. E. Gubernatis, "Marshall Rosenbluth and the Metropolis algorithm",
+  *Physics of Plasmas* **12**, 057303 (2005).
+  <https://doi.org/10.1063/1.1887186>
+- W. K. Hastings, "Monte Carlo sampling methods using Markov chains and their
+  applications", *Biometrika* **57**, 97–109 (1970).
+- N. Metropolis, A. W. Rosenbluth, M. N. Rosenbluth, A. H. Teller y E. Teller,
+  "Equation of state calculations by fast computing machines", *Journal of
+  Chemical Physics* **21**, 1087–1092 (1953).
+  <https://doi.org/10.1063/1.1699114>
+- H. Flyvbjerg y H. G. Petersen, "Error estimates on averages of correlated
+  data", *Journal of Chemical Physics* **91**, 461–466 (1989).
+  <https://doi.org/10.1063/1.457480>
+- A. D. Sokal, "Monte Carlo methods in statistical mechanics: foundations and
+  new algorithms", en *Functional Integration*, NATO ASI Series **361**,
+  131–192, Springer (1997). Para $\tau_\text{int}$ y la elección de la
+  ventana.
+- W. Krauth, *Statistical Mechanics: Algorithms and Computations*, Oxford
+  University Press (2006). Capítulo 1.

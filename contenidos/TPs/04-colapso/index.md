@@ -132,6 +132,10 @@ Las preguntas de cada parte no se contestan sueltas: siguen el ciclo del
 - Las demás preguntas se contestan en `lab.md`, con una entrada por
   experimento: qué esperaban, qué corrieron, qué vieron y cómo lo interpretan.
 - Al final, `lab.md` cierra con la afirmación sobre la pregunta del práctico.
+- Todo el azar sale de un generador con **semilla fija**, declarada en el
+  código, así cualquiera que corra el script obtiene los mismos números. Si
+  cambian la semilla, por ejemplo para ver cuánto varía un resultado entre
+  realizaciones, lo anotan en `lab.md` junto con las semillas que usaron.
 
 ## Parte 1 — La referencia
 
