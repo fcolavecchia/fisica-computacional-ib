@@ -132,6 +132,10 @@ Las preguntas de cada parte no se contestan sueltas: siguen el ciclo del
 - Las demás preguntas se contestan en `lab.md`, con una entrada por
   experimento: qué esperaban, qué corrieron, qué vieron y cómo lo interpretan.
 - Al final, `lab.md` cierra con la afirmación sobre la pregunta del práctico.
+- Todo el azar sale de un generador con **semilla fija**, declarada en el
+  código, así cualquiera que corra el script obtiene los mismos números. Si
+  cambian la semilla, por ejemplo para ver cuánto varía un resultado entre
+  realizaciones, lo anotan en `lab.md` junto con las semillas que usaron.
 
 ## Parte 1 — La referencia
 
@@ -180,14 +184,23 @@ Las preguntas de cada parte no se contestan sueltas: siguen el ciclo del
 
 ## Parte 4 — Auditoría
 
-Un asistente de IA produjo `auditoria/informe.md`, sobre una colisión de dos
-galaxias. Audítenlo siguiendo el protocolo de `auditoria/README.md`: qué
-afirmaciones revisar, cómo diseñar y correr los controles, y cómo registrarlos
-en `lab.md`. Las funciones del repositorio alcanzan.
+Las cáscaras son, por lejos, el método más barato. Un asistente de IA las usó
+para una nube que **no** es esférica: un elipsoide uniforme frío, de semiejes
+1, 0.9 y 0.8, apenas achatado. Produjo tres informes, en `auditoria/`, y los
+tres concluyen que la aproximación vale. Audítenlos siguiendo
+`auditoria/README.md`.
+
+Cada informe es un experimento: escriban una entrada de `lab.md` por informe,
+con el formato de
+[auditar un informe](../../la-materia/03-entrega-tps.md#auditar-un-informe).
+La entrada dice si la conclusión vale y, si no, **hasta cuándo y para qué
+observable** vale la aproximación de cáscaras, con la evidencia de un control
+independiente. Las herramientas de las partes 1 a 3 alcanzan; el README de la
+auditoría lista las que se agregan para la nube y cuánto tarda cada corrida.
 
 ## Cierre — La afirmación
 
-Con la evidencia de las partes 1 a 3, cierren `lab.md` con la afirmación sobre
+Con la evidencia de las partes 1 a 4, cierren `lab.md` con la afirmación sobre
 la pregunta del práctico: **¿cuánto podemos aproximar la gravedad de muchos
 cuerpos sin cambiar lo que medimos?** Para cada método: qué observable
 reproduce, hasta cuándo, con qué evidencia y qué deja afuera. Usen la forma de
@@ -212,6 +225,9 @@ delegaron a la IA y cómo lo verificaron. Ver
 ## Qué deberían poder explicar al terminar
 
 - Qué aproximación hace cada método y qué observable deja de representar.
-- Por qué en un sistema sin colisiones la suma directa también es una
-  aproximación.
+- Por qué la suma directa, que calcula exactamente la fuerza entre cada par de
+  partículas, tampoco da el campo de la esfera continua, y qué le agrega que la
+  esfera continua no tiene.
 - Qué fija el suavizado y qué escala física deja de resolver.
+- Por qué una aproximación que vale al principio puede dejar de valer durante
+  la evolución, y cómo se detecta.

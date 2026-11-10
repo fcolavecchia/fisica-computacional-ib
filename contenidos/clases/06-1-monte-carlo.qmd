@@ -1051,9 +1051,15 @@ Un informe estudia el pozo anarmónico con un código de Metropolis propio:
 >
 > | $T$ | $\langle x^2\rangle$ |
 > |---:|---:|
+<<<<<<< HEAD
 > | 0.25 | $0.176\pm0.004$ |
 > | 1 | $0.470\pm0.011$ |
 > | 4 | $1.12\pm0.04$ |
+=======
+> | 0.25 | $1.12\pm0.04$ |
+> | 1 | $0.470\pm0.011$ |
+> | 4 | $0.176\pm0.004$ |
+>>>>>>> 7e61ccdadc2656b05aade153bf5737648889bffe
 >
 > A baja temperatura la partícula explora una región más amplia del pozo:
 > el término cuártico domina el comportamiento del sistema.

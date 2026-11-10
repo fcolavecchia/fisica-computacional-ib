@@ -64,10 +64,19 @@ con la suma de las fuerzas de todas las demás. La suma vectorizada con
 | Caos | limita lo que se puede predecir | permite que una sola trayectoria explore los estados de equilibrio |
 
 La última fila es el cambio de mirada. Ninguna trayectoria individual de la
-simulación es la del argón real, ni hace falta. Lo que necesitamos es que una
-trayectoria larga **recorra** los estados compatibles con la energía, de modo
-que el promedio temporal coincida con el promedio sobre el ensamble. Esa
-**hipótesis ergódica** no se demuestra en general: se pone a prueba. La clase
+simulación es la del argón real, ni hace falta. Lo que medimos son **promedios
+temporales** a lo largo de una trayectoria. La mecánica estadística, en cambio,
+predice **promedios sobre el ensamble**: el promedio de una magnitud $A$ sobre
+todos los estados microscópicos, es decir posiciones y velocidades de las $N$
+partículas, que tienen la misma energía $E$, todos con el mismo peso. La
+**hipótesis ergódica** afirma que los dos coinciden:
+
+$$
+\lim_{t_{\max}\to\infty}\frac1{t_{\max}}\int_0^{t_{\max}}A(t)\,dt=\langle A\rangle_E .
+$$
+
+Para eso una trayectoria larga tiene que **recorrer** todos esos estados, y el
+caos ayuda. La hipótesis no se demuestra en general: se pone a prueba. La clase
 06 la va a contrastar con un promedio de ensamble calculado de otra manera.
 
 ## 2. Lennard-Jones y unidades reducidas
@@ -142,10 +151,20 @@ plt.show()
 
 ## 3. Caja y condiciones periódicas
 
-Unos cientos de partículas en una caja con paredes serían casi todas
-superficie. Para simular el interior de un fluido, la caja de lado $L$ se
-repite en las tres direcciones: una partícula que sale por una cara entra por la
-opuesta.
+¿Qué pasa si encerramos las partículas en una caja con paredes? Las que están
+en la capa de espesor $\sigma$ junto a las paredes tienen vecinas de un solo
+lado: su entorno es el de una superficie, no el del interior del fluido. Con
+densidad uniforme, esa capa contiene una fracción $1-(L-2\sigma)^3/L^3$ de las
+partículas.
+
+- En un cubo de argón líquido de 1.7 cm de lado, con $10^{23}$ átomos, la
+  fracción es $10^{-7}$: la superficie no importa.
+- En nuestra simulación, con $N=256$ y $L=6.7\sigma$, la fracción es $0.65$:
+  la superficie domina.
+
+Para simular el interior de un fluido con pocas partículas eliminamos las
+paredes: la caja de lado $L$ se repite en las tres direcciones, y una partícula
+que sale por una cara entra por la opuesta.
 
 ```{python}
 #| label: fig-imagenes
@@ -412,9 +431,9 @@ def simular(n, densidad, T0, dt, pasos, cada=10, semilla=2026):
     N = 4 * n**3
     L = (N / densidad) ** (1 / 3)
     r = red_fcc(n, L)
-    v = rng.normal(size=(N, 3))
-    v -= v.mean(axis=0)
-    v *= np.sqrt(3 * (N - 1) * T0 / np.sum(v**2))
+    v = rng.normal(size=(N, 3))  # gaussianas: la forma de Maxwell-Boltzmann
+    v -= v.mean(axis=0)  # momento total nulo
+    v *= np.sqrt(3 * (N - 1) * T0 / np.sum(v**2))  # escala para que T = T0
     F, U, W = fuerzas(r, L)
     sin_plegar = r.copy()
     registro = {"t": [], "K": [], "U": [], "W": [], "r": []}
@@ -422,11 +441,11 @@ def simular(n, densidad, T0, dt, pasos, cada=10, semilla=2026):
         if paso % cada == 0:
             for nombre, valor in zip(registro, (paso * dt, 0.5 * np.sum(v**2), U, W, sin_plegar.copy())):
                 registro[nombre].append(valor)
-        v += 0.5 * dt * F
-        r = (r + dt * v) % L
-        sin_plegar += dt * v
-        F, U, W = fuerzas(r, L)
-        v += 0.5 * dt * F
+        v += 0.5 * dt * F  # medio paso de velocidad con la fuerza vieja
+        r = (r + dt * v) % L  # paso entero de posición, plegado a la caja
+        sin_plegar += dt * v  # la misma posición sin plegar, para la difusión
+        F, U, W = fuerzas(r, L)  # fuerza en las posiciones nuevas
+        v += 0.5 * dt * F  # medio paso de velocidad con la fuerza nueva
     return {nombre: np.array(valores) for nombre, valores in registro.items()}, N, L
 
 
@@ -436,33 +455,9 @@ t, K, U, W = (registro[nombre] for nombre in ("t", "K", "U", "W"))
 T = 2 * K / (3 * (N - 1))
 ```
 
-**Antes de ver la figura:** arrancamos con un cristal perfecto a $T_0=1.5$.
+**Antes de ver la animación:** arrancamos con un cristal perfecto a $T_0=1.5$.
 ¿Qué temperatura esperan una vez que el sistema se equilibra? ¿Mayor, igual o
 menor que $T_0$?
-
-```{python}
-#| label: fig-equilibracion
-#| fig-cap: "Temperatura instantánea y energía potencial por partícula durante los primeros 2 τ, desde la red cristalina con T0 = 1.5."
-#| code-fold: true
-#| code-summary: "Código de la figura"
-
-primeros = t <= 2
-fig, (ax_T, ax_U) = plt.subplots(1, 2, figsize=(8, 3.2))
-ax_T.plot(t[primeros], T[primeros], ".-", ms=3)
-ax_T.set(xlabel="$t/\\tau$", ylabel="$T$ ($\\varepsilon/k_B$)")
-ax_U.plot(t[primeros], U[primeros] / N, ".-", ms=3, color="C1")
-ax_U.set(xlabel="$t/\\tau$", ylabel="$U/N$ ($\\varepsilon$)")
-for ax in (ax_T, ax_U):
-    ax.grid(alpha=0.25)
-fig.tight_layout()
-plt.show()
-
-E = K + U
-print(f"variación relativa de la energía total: {(E.max() - E.min()) / abs(E.mean()):.1e}")
-```
-
-En una fracción de $\tau$ la energía cinética se reparte con la potencial: el
-cristal se funde y la temperatura cae. La energía total no cambia.
 
 La animación muestra las 256 partículas proyectadas sobre el plano $xy$
 durante los primeros $3\tau$. Al principio se ven las columnas de la red; en
@@ -488,6 +483,30 @@ def cuadro(k):
 
 animar(fig, cuadro, cuadros=61)
 ```
+
+```{python}
+#| label: fig-equilibracion
+#| fig-cap: "Temperatura instantánea y energía potencial por partícula durante los primeros 2 τ, desde la red cristalina con T0 = 1.5."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+primeros = t <= 2
+fig, (ax_T, ax_U) = plt.subplots(1, 2, figsize=(8, 3.2))
+ax_T.plot(t[primeros], T[primeros], ".-", ms=3)
+ax_T.set(xlabel="$t/\\tau$", ylabel="$T$ ($\\varepsilon/k_B$)")
+ax_U.plot(t[primeros], U[primeros] / N, ".-", ms=3, color="C1")
+ax_U.set(xlabel="$t/\\tau$", ylabel="$U/N$ ($\\varepsilon$)")
+for ax in (ax_T, ax_U):
+    ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+
+E = K + U
+print(f"variación relativa de la energía total: {(E.max() - E.min()) / abs(E.mean()):.1e}")
+```
+
+En una fracción de $\tau$ la energía cinética se reparte con la potencial: el
+cristal se funde y la temperatura cae. La energía total no cambia.
 
 ¿Cuándo terminó la equilibración? No hay un criterio único. Algunos que se
 usan juntos:
@@ -656,9 +675,9 @@ $$
 \langle\Delta r^2(t)\rangle\simeq6Dt\qquad(t\gg\tau).
 $$
 
-El 6 es $2d$ con $d=3$ dimensiones: cada componente aporta $2Dt$, la convención
-de la ecuación de difusión $\partial_t c=D\nabla^2c$. La ordenada del ajuste es
-chica y positiva: es lo que dejó el tramo balístico, que la recta no describe.
+El factor 6 lo deducimos en la clase 08, a partir de la ecuación de difusión.
+La ordenada del ajuste es chica y positiva: es lo que dejó el tramo balístico,
+que la recta no describe.
 
 ```{python}
 #| label: difusion
@@ -709,18 +728,21 @@ fluctúa alrededor de cero por el ruido estadístico. Tener 400 muestras no es
 tener 400 mediciones independientes. Una barra de error calculada como si lo fueran es
 demasiado chica. Cómo estimarla bien es tema de la clase 06 y del TP 05.
 
-### Discusión en grupos: un resultado plausible
+### Discusión: ¿reescalar o no?
 
-Un código de dinámica molecular **reescala las velocidades en cada paso** para
-mantener la temperatura exactamente en $T=0.73$, también durante la medición. El
-informe muestra una temperatura sin fluctuaciones, una función de distribución
-radial razonable y un coeficiente de difusión.
+En la sección 5 reescalamos las velocidades **una sola vez**, antes de
+integrar. Elegimos $T_0=1.5$ y el sistema terminó en $T=0.73$: sin reescalar
+fijamos la energía total, y la temperatura es un resultado. Si queremos simular
+a una temperatura elegida, una alternativa es repetir ese reescalado **en cada
+paso**, también durante la medición: multiplicar las velocidades por
+$\sqrt{T_{\text{objetivo}}/T}$ después de cada paso de Verlet. La temperatura
+queda fija exactamente en el valor elegido.
 
-1. ¿Qué cantidad de la sección 5 dejaría de conservarse? ¿Lo mostraría el
-   informe?
-2. ¿Qué observable de esta clase permitiría detectarlo sin leer el código?
-3. ¿Cuál de los resultados del informe creen que sigue siendo válido, y cuál
-   no?
+1. ¿Qué cantidad de la sección 5 deja de conservarse?
+2. Si sólo tienen $T(t)$, $g(r)$ y $D$ de una simulación, ¿cómo sabrían si
+   reescaló en cada paso?
+3. ¿Cuáles de los resultados de esta clase seguirían valiendo con el
+   reescalado, y cuáles no?
 
 ## 8. Qué podemos concluir y qué no
 
