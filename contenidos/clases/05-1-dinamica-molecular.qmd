@@ -767,7 +767,7 @@ No podemos concluir que:
 ### Puente con el TP 05
 
 En la práctica de hoy siguen con el TP 04. El TP 05, que empieza en la
-práctica de la clase 06, retoma esta dinámica molecular: van a validarla,
+práctica de la clase 07, retoma esta dinámica molecular: van a validarla,
 estimar barras de error que tengan en cuenta la correlación y compararla con
 un promedio de ensamble calculado con Metropolis. La
 pregunta de salida:
