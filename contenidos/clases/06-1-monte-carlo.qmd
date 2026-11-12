@@ -279,7 +279,9 @@ Lo que muestran la tabla y la figura:
   que $k^{-2}$; la conclusión no cambia.
 - **Monte Carlo:** el error **también crece con $d$**, pero mucho más
   despacio. Lo que no depende de $d$ es el exponente: sigue bajando como
-  $n^{-1/2}$.
+  $n^{-1/2}$. Los puntos saltan alrededor de la línea porque cada uno es una
+  sola corrida: su error es la barra multiplicada por un número al azar de
+  orden uno, que a veces sale chico y en escala logarítmica hunde el punto.
 - **De dónde sale la dependencia.** El error relativo de este estimador es
   $\sqrt{(1-p)/(pn)}$, con $p=V_d/2^d$ la fracción de puntos que cae adentro.
   A medida que $d$ crece, la esfera ocupa una fracción cada vez menor del
@@ -1051,15 +1053,9 @@ Un informe estudia el pozo anarmónico con un código de Metropolis propio:
 >
 > | $T$ | $\langle x^2\rangle$ |
 > |---:|---:|
-<<<<<<< HEAD
 > | 0.25 | $0.176\pm0.004$ |
 > | 1 | $0.470\pm0.011$ |
 > | 4 | $1.12\pm0.04$ |
-=======
-> | 0.25 | $1.12\pm0.04$ |
-> | 1 | $0.470\pm0.011$ |
-> | 4 | $0.176\pm0.004$ |
->>>>>>> 7e61ccdadc2656b05aade153bf5737648889bffe
 >
 > A baja temperatura la partícula explora una región más amplia del pozo:
 > el término cuártico domina el comportamiento del sistema.

@@ -24,11 +24,9 @@ limitaciones.
 - [Colapso frío y gravedad aproximada](04-colapso/index.md): cáscaras
   esféricas y malla con transformada de Fourier contra la suma directa.
 
-<!--
 - [Dinámica molecular y Metropolis](05-dinamica-molecular/index.md): barras de
   error con muestras correlacionadas y comparación entre el promedio temporal
   de Newton y el de ensamble de Metropolis.
--->
 
 Los enlaces a los repositorios de trabajo aparecen en la página de cada
 actividad. En la actividad inicial y el TP 01, cada estudiante crea un
