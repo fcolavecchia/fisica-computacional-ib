@@ -1,0 +1,1031 @@
+---
+title: "Ecuación de difusión y FTCS"
+subtitle: "Física Computacional 2026"
+fecha: a definir
+# Esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/08-1-difusion.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/08-1-difusion.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** ¿Por qué refinar la grilla espacial puede hacer
+> explotar una solución que antes funcionaba?
+
+Hasta ahora el estado de un sistema era un puñado de números: posiciones y
+velocidades de pocas partículas. Hoy el estado es un **campo**, una función de
+la posición, y la ecuación que lo gobierna tiene derivadas en el tiempo y en
+el espacio. Empezamos donde terminó la clase 07: el caminante aleatorio, en el
+límite en que los pasos se hacen chicos, obedece una ecuación en derivadas
+parciales (EDP). Después la discretizamos con el método más simple, que ya
+conocemos como Euler explícito, y descubrimos que ahora el **paso espacial**
+también puede romperlo.
+
+```{python}
+#| label: imports
+#| include: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import solve_banded
+```
+
+## 1. Del caminante a la ecuación del calor
+
+En la clase 07 un caminante da un paso de largo $a$ a la derecha o a la
+izquierda, con probabilidad $1/2$, cada intervalo $\Delta t$. Si $n$ cuenta los
+pasos, su ecuación maestra es
+
+$$
+P_{n+1}(x)-P_n(x)=\tfrac12\left[P_n(x+a)-2P_n(x)+P_n(x-a)\right].
+$$
+
+Pasamos a una **densidad** $c(x,t)$, la probabilidad por unidad de longitud
+(o, para muchos caminantes, la concentración). Si $a$ y $\Delta t$ son chicos,
+con $t_n=n\Delta t$, la diferencia temporal es aproximadamente
+$\Delta t\,\partial_t c$ y la diferencia segunda espacial es aproximadamente
+$a^2\,\partial_x^2c$. Reemplazando,
+
+$$
+\boxed{\frac{\partial c}{\partial t}=D\,\frac{\partial^2c}{\partial x^2},
+\qquad D=\frac{a^2}{2\,\Delta t}.}
+$$
+
+Es la **ecuación de difusión** o **del calor**. Expresa una conservación: lo que
+cambia $c$ en un punto es lo que entra menos lo que sale,
+$\partial_tc=-\partial_xJ$, donde $J$ es el **flujo**, la cantidad que cruza por
+unidad de área y de tiempo.
+
+La **ley de Fick** dice cómo es ese flujo: $J=-D\,\partial_xc$. El flujo va en
+sentido contrario al gradiente, de donde hay más concentración a donde hay
+menos. Reemplazando en la conservación obtenemos la ecuación, y el coeficiente
+$D$ es el mismo que midieron en las clases 05 y 07. La solución para un caminante que arranca en el origen es una
+gaussiana de varianza $2Dt$:
+
+$$
+c(x,t)=\frac{1}{\sqrt{4\pi Dt}}\,e^{-x^2/(4Dt)}.
+$$
+
+Lo controlamos con caminantes: con $a=1$ y $\Delta t=1$, $D=1/2$.
+
+```{python}
+#| label: caminantes-gaussiana
+
+rng = np.random.default_rng(1)
+caminantes, t = 10_000, 100
+x = np.cumsum(rng.choice([-1, 1], size=(t, caminantes)), axis=0)[-1]
+
+D_caminante = 0.5
+sitios = np.arange(-t, t + 1)
+frecuencias = np.bincount(x + t, minlength=len(sitios)) / caminantes
+gaussiana = np.exp(-(sitios**2) / (4 * D_caminante * t)) / np.sqrt(4 * np.pi * D_caminante * t)
+print(f"varianza / t = {x.var() / t:.3f}   (2D = {2 * D_caminante:.1f})")
+```
+
+```{python}
+#| label: fig-caminantes-gaussiana
+#| fig-cap: "Posición de 10 000 caminantes después de 100 pasos y solución de la ecuación de difusión con D = 1/2. Con t par sólo se ocupan los sitios pares; por eso la gaussiana lleva un factor 2."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+pares = sitios % 2 == 0
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.plot(sitios[pares], frecuencias[pares], "o", ms=3, label="caminantes")
+ax.plot(sitios, 2 * gaussiana, "k-", lw=1, label="$2\\,c(x,t)$")
+ax.set(xlabel="$x$", ylabel="probabilidad", xlim=(-40, 40))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+### 1.1. De dónde sale el factor $2d$
+
+En la clase 05 medimos $\langle r^2\rangle\simeq6Dt$ y en la 07
+$\langle r^2\rangle=2dDt$ en $d$ dimensiones. Ahora podemos deducirlo.
+
+- Sea $c(\mathbf x,t)$ la **densidad de probabilidad** de un caminante que
+  arranca en el origen, con $\int c\,d^dx=1$.
+- Su desplazamiento cuadrático medio es
+  $\langle|\mathbf x|^2\rangle=\int|\mathbf x|^2\,c\,d^dx$.
+- Si $c$ obedece $\partial_tc=D\nabla^2c$ y se anula lejos del origen,
+
+$$
+\frac{d}{dt}\langle|\mathbf x|^2\rangle
+=D\int |\mathbf x|^2\,\nabla^2c\,d^dx
+=D\int c\,\nabla^2|\mathbf x|^2\,d^dx
+=2d\,D.
+$$
+
+El paso del medio usa integrar por partes dos veces, sin términos de borde. El
+último usa $\nabla^2|\mathbf x|^2=2d$: cada dimensión aporta $\partial_x^2x^2=2$.
+
+### 1.2. Tres tipos de ecuaciones
+
+La difusión es una EDP lineal de segundo orden. Como orientación, las EDP de
+este tipo se clasifican según la forma de su parte de segundo orden; tres
+ejemplos típicos son:
+
+| Tipo | Ejemplo | Qué pide | Cómo se resuelve |
+|---|---|---|---|
+| **Parabólica** | difusión, $\partial_tc=D\partial_x^2c$ | dato inicial y bordes | avanzando en el tiempo |
+| **Hiperbólica** | onda, $\partial_t^2u=v^2\partial_x^2u$ | $u(x,0)$, $\partial_tu(x,0)$ y bordes | avanzando, con velocidad finita |
+| **Elíptica** | Laplace, $\nabla^2\phi=0$ | sólo bordes | de una vez, como sistema lineal |
+
+Hoy resolvemos la primera. La ecuación de Schrödinger estacionaria de la
+clase 10 es de tipo elíptico, como la **ecuación de Helmholtz**,
+$\nabla^2\phi+k^2\phi=0$. Pero la de Schrödinger introduce **números
+complejos**: la ecuación temporal lleva la unidad imaginaria $i$ y la función
+de onda $\psi$ es compleja. La difusión, en cambio, sólo tiene números reales.
+
+## 2. Discretización: FTCS
+
+Dividimos el intervalo de largo $L$ en $N$ celdas de ancho $\Delta x=L/N$ y
+guardamos el valor $c_j$ en el centro de cada celda, $x_j=(j+\tfrac12)\Delta x$.
+La derivada segunda se reemplaza por la **diferencia centrada**,
+
+$$
+\frac{\partial^2c}{\partial x^2}\Big|_{x_j}\approx
+\frac{c_{j+1}-2c_j+c_{j-1}}{\Delta x^2},
+$$
+
+cuyo error es de orden $\Delta x^2$. Con eso la EDP se convierte en un sistema
+de $N$ EDO acopladas, una por celda:
+
+$$
+\frac{dc_j}{dt}=\frac{D}{\Delta x^2}\left(c_{j+1}-2c_j+c_{j-1}\right).
+$$
+
+Ya sabemos integrar EDO. Con Euler explícito y paso $\Delta t$ queda el
+esquema **FTCS** (de *Forward Time, Centered Space*: adelante en el tiempo,
+centrado en el espacio):
+
+$$
+\boxed{c_j^{n+1}=c_j^n+r\left(c_{j+1}^n-2c_j^n+c_{j-1}^n\right),
+\qquad r=\frac{D\,\Delta t}{\Delta x^2}.}
+$$
+
+El número $r$ es adimensional y es el único parámetro del esquema. Si $r=1/2$,
+el coeficiente de $c_j^n$ se anula y queda $c_j^{n+1}=\tfrac12(c_{j-1}^n+c_{j+1}^n)$:
+es exactamente la ecuación maestra del caminante de la clase 07.
+
+```{python}
+#| label: ftcs
+
+def grilla(N, L=1.0):
+    """Centros de N celdas de ancho dx = L / N."""
+    dx = L / N
+    return dx, (np.arange(N) + 0.5) * dx
+
+
+def fantasmas(c, borde):
+    """Valores de las celdas ficticias que rodean al dominio."""
+    if borde == "periódico":
+        return c[-1], c[0]
+    if borde == "flujo nulo":
+        return c[0], c[-1]
+    if borde == "Dirichlet":  # c = 0 en la pared, a mitad de camino
+        return -c[0], -c[-1]
+    raise ValueError(borde)
+
+
+def paso_ftcs(c, r, borde="periódico"):
+    """Un paso de FTCS."""
+    izquierda, derecha = fantasmas(c, borde)
+    p = np.concatenate(([izquierda], c, [derecha]))
+    return c + r * (p[2:] - 2 * c + p[:-2])
+```
+
+## 3. Condiciones de borde
+
+Una EDP necesita decir qué pasa en los extremos. Las celdas ficticias de la
+función `fantasmas` implementan tres casos:
+
+- **Periódico:** el extremo derecho es vecino del izquierdo. Es un anillo, sin
+  bordes.
+- **Flujo nulo:** la derivada es cero en la pared, nada entra ni sale. Se
+  logra copiando el valor del borde.
+- **Dirichlet:** el valor está fijo en la pared; acá, $c=0$.
+
+Llamamos **cantidad total** a $Q=\int_0^Lc\,dx$, que en la grilla es
+$Q\approx\sum_jc_j\,\Delta x$. Para un caminante es la probabilidad total;
+para muchos, el número de caminantes en la barra.
+
+::: {.callout-note}
+## Lectura térmica
+
+En la ecuación del calor, $c$ es la temperatura $T$ y
+$D=\kappa/(\rho c_{\mathrm p})$ es la difusividad térmica, con $\kappa$ la
+conductividad, $\rho$ la densidad y $c_{\mathrm p}$ el calor específico. La
+energía térmica de la barra, medida desde una temperatura de referencia, es
+$E=\rho\,c_{\mathrm p}\,A\int T\,dx=\rho\,c_{\mathrm p}\,A\,Q$, con
+$A$ la sección. Conservar $Q$ es conservar la energía, y los bordes tienen
+una lectura directa:
+
+- **flujo nulo:** extremos aislados, $Q$ se conserva;
+- **periódico:** un anillo sin extremos, $Q$ se conserva;
+- **Dirichlet:** extremos en contacto con un baño térmico, el calor sale por
+  las paredes y $Q$ disminuye.
+:::
+
+**Antes de correr:** una gaussiana angosta, en $x=0.3$, se deja difundir
+hasta que alcanza las paredes. ¿En cuál de los tres casos esperan que se
+conserve $Q$? ¿Puede el máximo crecer o el mínimo bajar de cero?
+
+```{python}
+#| label: bordes
+
+N, D, r = 100, 1.0, 0.4
+dx, x = grilla(N)
+c_inicial = np.exp(-((x - 0.3) ** 2) / (2 * 0.05**2))
+c_inicial /= np.sum(c_inicial) * dx  # integral igual a uno
+
+resultados = {}
+for borde in ("periódico", "flujo nulo", "Dirichlet"):
+    c = c_inicial.copy()
+    Q = [np.sum(c) * dx]
+    for _ in range(2000):
+        c = paso_ftcs(c, r, borde)
+        Q.append(np.sum(c) * dx)
+    resultados[borde] = (c, np.array(Q))
+    print(f"{borde:>10}: Q final {Q[-1]:.12f}  máximo {c.max():.3f}  mínimo {c.min():.4f}")
+```
+
+```{python}
+#| label: fig-bordes
+#| fig-cap: "Perfil de la concentración después de 2000 pasos con r = 0.4, para los tres tipos de borde. La línea de puntos es la condición inicial."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.plot(x, c_inicial, "k:", lw=1, label="inicial")
+for borde, (c, _) in resultados.items():
+    ax.plot(x, c, label=borde)
+ax.set(xlabel="$x$", ylabel="$c$")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+Con borde periódico o de flujo nulo, $Q$ se conserva hasta el redondeo; con
+Dirichlet se escapa por las paredes. Para los dos primeros casos, mientras
+$r\le1/2$, cada valor nuevo es un promedio con pesos $r$, $1-2r$ y $r$ de sus
+vecinos, y se mantiene dentro del rango de la condición inicial: es el
+**principio del máximo**. En el borde Dirichlet de esta implementación, el
+valor ficticio es $-c_0$ o $-c_{N-1}$; allí la condición de positividad es más
+restrictiva ($r\le1/3$). La sección 5 analiza la condición interior
+$r\le1/2$.
+
+## 4. Modos de Fourier
+
+Para estudiar FTCS conviene descomponer la solución en ondas. Así la ecuación
+se vuelve simple: cada onda evoluciona por separado.
+
+**Qué es un modo.** En una barra periódica de largo $L$, cualquier función se
+escribe como suma de ondas $\cos(kx)$ y $\sin(kx)$, con $k=2\pi m/L$ y $m$
+entero. Cada onda es un **modo** de Fourier:
+
+- $m$ es la cantidad de oscilaciones que entran en la barra.
+- $k$ es el **número de onda**, y la **longitud de onda** es $\lambda=2\pi/k=L/m$.
+- $m$ chico: modo **lento**, variaciones suaves en toda la barra.
+- $m$ grande: modo **rápido**, variaciones finas.
+
+**Propiedad 1: la difusión no mezcla modos.** La ecuación es lineal y sus
+coeficientes no dependen de $x$. Si $c(x,t)=A(t)\cos(kx)$, la ecuación da
+$A'(t)=-Dk^2A(t)$, es decir,
+
+$$
+A(t)=e^{-Dk^2t}\,A(0).
+$$
+
+Cada modo conserva su longitud de onda y decae por su cuenta. Los rápidos
+(con $k$ grande) mueren mucho antes que los lentos.
+
+**Propiedad 2: la grilla no tiene modos arbitrariamente rápidos.** Con $N$
+celdas, el modo más rápido que se puede representar es el que alterna de signo
+entre celdas vecinas: $\lambda=2\Delta x$, $m=N/2$ y $k\Delta x=\pi$. Los modos
+con $k\Delta x>\pi$ no existen en la grilla.
+
+```{python}
+#| label: fig-modo-rapido
+#| fig-cap: "Grilla con N = 8 celdas en L = 1, Δx = 0.125 (líneas grises: bordes de celda; puntos: centros). Izquierda: el modo más rápido, m = 4, con λ = 2Δx = 0.25; en los centros toma los valores +1 y −1 alternados. Derecha: el modo m = 6, con λ ≈ 0.167 < 2Δx, toma en los centros los mismos valores que m = 2, así que en la grilla no se distinguen. Por eso no hay modos más rápidos que 2Δx: se confunden con uno más lento."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+N = 8
+dx, x = grilla(N)
+xf = np.linspace(0, 1, 800)
+bordes = np.arange(N + 1) * dx
+etiquetas = ["0"] + [f"{j}Δx" for j in range(1, N + 1)]
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.5, 3.6), sharey=True)
+
+for ax in (ax1, ax2):
+    ax.vlines(bordes, -1.2, 1.2, color="0.85", lw=0.8, zorder=0)
+    ax.set_xticks(bordes, etiquetas, fontsize=7)
+    ax.axhline(0, color="0.5", lw=0.5)
+    ax.set(xlabel="$x$", ylim=(-1.2, 1.2))
+
+m = N // 2  # λ = 2Δx
+ax1.plot(xf, np.sin(2 * np.pi * m * xf), color="0.6", lw=1)
+ax1.plot(x, np.sin(2 * np.pi * m * x), "o", color="C0")
+ax1.set(title="$m=4$: $\\lambda=2\\Delta x$", ylabel="$\\sin(2\\pi m x)$")
+
+ax2.plot(xf, np.sin(2 * np.pi * 2 * xf), color="C0", lw=1, label="$m=2$")
+ax2.plot(xf, np.sin(2 * np.pi * 6 * xf), color="C3", lw=1, label="$m=6$")
+ax2.plot(x, np.sin(2 * np.pi * 2 * x), "o", mfc="none", color="C0")
+ax2.plot(x, np.sin(2 * np.pi * 6 * x), "x", ms=7, color="C3")
+ax2.set(title="$m=6$ y $m=2$ dan los mismos valores")
+ax2.legend(fontsize=8, loc="lower right")
+fig.tight_layout()
+plt.show()
+```
+
+Estas dos propiedades bastan para el análisis de estabilidad: FTCS multiplica
+cada modo por un número en cada paso, y el modo más rápido es el que pone en
+riesgo el esquema.
+
+### Controles de FTCS
+
+Dos verificaciones con lo que ya tenemos:
+
+- **Caminante.** Con $r=1/2$, FTCS es la ecuación maestra de la clase 07.
+- **Modo.** Un modo lento decae como $e^{-Dk^2t}$ (propiedad 1), y FTCS debería
+  reproducirlo.
+
+```{python}
+#| label: controles
+
+# Control 1: con r = 1/2, FTCS es la ecuación maestra del caminante.
+c = np.random.default_rng(0).random(20)
+maestra = 0.5 * np.roll(c, 1) + 0.5 * np.roll(c, -1)
+print("r = 1/2 coincide con el caminante:", np.allclose(paso_ftcs(c, 0.5), maestra))
+
+# Control 2: un modo lento decae como exp(-D k² t).
+N, D, r = 100, 1.0, 0.25
+dx, x = grilla(N)
+pasos = 800
+t_final = pasos * r * dx**2 / D
+k = 2 * np.pi
+c = np.cos(k * x)
+for _ in range(pasos):
+    c = paso_ftcs(c, r)
+amplitud = 2 * np.sum(c * np.cos(k * x)) / N
+print(f"amplitud del modo en t = {t_final:.3f}: {amplitud:.5f}   exp(-D k² t) = {np.exp(-D * k**2 * t_final):.5f}")
+```
+
+## 5. Estabilidad
+
+**Antes de correr:** resolvemos la misma difusión con $N=50$ celdas y con
+$N=100$, con **el mismo** $\Delta t=10^{-4}$ ($D=1$, $L=1$). Con $N=100$ la
+grilla es más fina. ¿Esperan una solución mejor, igual o peor?
+
+```{python}
+#| label: refinar
+
+D, dt = 1.0, 1e-4
+pasos = 60
+for N in (50, 100):
+    dx, x = grilla(N)
+    r = D * dt / dx**2
+    c = np.exp(-((x - 0.5) ** 2) / (2 * 0.03**2))
+    c /= np.sum(c) * dx
+    for _ in range(pasos):
+        c = paso_ftcs(c, r)
+    print(f"N = {N:>3}: Δx = {dx:.3f}   r = {r:.2f}   máximo {c.max():.3g}   mínimo {c.min():.3g}")
+```
+
+Con $N=100$ el resultado dejó de tener sentido físico: una concentración
+negativa y valores gigantescos. Se duplicó la resolución y $\Delta x$ se redujo
+a la mitad; como $r$ depende de $\Delta x^2$, $r$ pasó de $0.25$ a $1$. El
+paso $\Delta t$ quedó igual, y es $\Delta x$ el que rompe el esquema.
+
+### 5.1. Análisis de von Neumann
+
+La idea: en la ecuación exacta cada modo decae por su cuenta (sección 4). Nos
+preguntamos qué le hace FTCS a un modo en un paso. Hacemos la cuenta despacio.
+
+**Paso 1: la propuesta.** Buscamos soluciones de FTCS de la forma
+
+$$
+c_j^n=\xi^n\,e^{ikx_j}.
+$$
+
+- $e^{ikx_j}=\cos(kx_j)+i\sin(kx_j)$ es un modo de número de onda $k$ evaluado
+  en la celda $j$. La forma compleja lleva el coseno y el seno juntos y hace
+  las cuentas más cortas.
+- $\xi^n$ es $\xi$ elevado a la $n$: en cada paso el modo se multiplica por el
+  mismo número $\xi$, el **factor de amplificación**.
+- $\xi$ no depende de $j$: el modo conserva su forma y sólo cambia su amplitud.
+
+**Paso 2: los vecinos.** Como $x_{j\pm1}=x_j\pm\Delta x$,
+
+$$
+c_{j\pm1}^n=\xi^n\,e^{ik(x_j\pm\Delta x)}=c_j^n\,e^{\pm ik\Delta x}.
+$$
+
+Cada vecino es el mismo valor $c_j^n$ multiplicado por una fase.
+
+**Paso 3: reemplazar en FTCS.** El lado izquierdo es
+$c_j^{n+1}=\xi^{n+1}e^{ikx_j}=\xi\,c_j^n$. Entonces
+
+$$
+\xi\,c_j^n=c_j^n+r\left(c_j^n\,e^{ik\Delta x}-2c_j^n+c_j^n\,e^{-ik\Delta x}\right).
+$$
+
+Dividimos por $c_j^n$, que no es cero:
+
+$$
+\xi=1+r\left(e^{ik\Delta x}+e^{-ik\Delta x}-2\right).
+$$
+
+**Paso 4: simplificar.** Llamamos $\theta=k\Delta x$. Usamos dos identidades:
+
+- $e^{i\theta}+e^{-i\theta}=2\cos\theta$;
+- $1-\cos\theta=2\sin^2(\theta/2)$.
+
+Con ellas, $e^{i\theta}+e^{-i\theta}-2=-2(1-\cos\theta)=-4\sin^2(\theta/2)$, y
+
+$$
+\xi(k)=1-4r\sin^2\!\left(\frac{k\Delta x}{2}\right).
+$$
+
+El factor es real: si $\xi<0$, el modo cambia de signo en cada paso.
+
+**Paso 5: la condición.** Después de $n$ pasos el modo quedó multiplicado por
+$\xi^n$. Si $|\xi|>1$ crece sin límite, así que pedimos $|\xi|\le1$ para todo $k$.
+
+- Como $0\le\sin^2\le1$, $\xi$ va de $1$ a $1-4r$.
+- $\xi=1$ corresponde a $k=0$, el modo uniforme: es la cantidad total $Q$ de
+  la sección 3, que se conserva.
+- $\xi=1-4r$ corresponde a $k\Delta x=\pi$, el modo más rápido de la grilla
+  (figura de la sección 4).
+- $\xi$ nunca supera $1$; el único peligro es que baje de $-1$. El caso peor es
+  el modo más rápido:
+
+$$
+\boxed{1-4r\ge-1\quad\Longleftrightarrow\quad r\le\frac12
+\quad\Longleftrightarrow\quad \Delta t\le\frac{\Delta x^2}{2D}.}
+$$
+
+Esta es la condición del operador interior y de los bordes periódicos; un
+tratamiento particular del borde puede imponer una restricción adicional.
+
+**Ejemplo.** En el experimento con $N=100$ teníamos $r=1$. Para el modo más
+rápido, $\xi=1-4=-3$: cambia de signo y triplica su amplitud en cada paso.
+
+Es la condición de los tres pesos no negativos de la sección 3. Lo
+controlamos aplicando FTCS al modo alternante, para varios valores de $r$.
+
+```{python}
+#| label: von-neumann
+
+N = 100
+alternante = (-1.0) ** np.arange(N)
+print("      r   |1 - 4r|   crecimiento medido por paso")
+for r in (0.4, 0.5, 0.55, 0.6, 1.0, 1.6):
+    c = 1e-3 * alternante
+    m = 20
+    for _ in range(m):
+        c = paso_ftcs(c, r)
+    medido = (np.abs(c).max() / 1e-3) ** (1 / m)
+    print(f"{r:>7.2f}   {abs(1 - 4 * r):>6.2f}   {medido:>8.2f}")
+```
+
+La columna medida reproduce $|1-4r|$. Con $r=1$, el modo alternante crece un
+factor 3 por paso. Ese modo casi no estaba en la condición inicial, pero el
+redondeo siempre deja un poco: un error de $10^{-16}$ se multiplica por
+$3^{60}\approx4\times10^{28}$ en 60 pasos.
+
+```{python}
+#| label: fig-crecimiento
+#| fig-cap: "Error máximo respecto de la solución exacta en función del número de pasos, para distintos r. Las líneas negras de puntos son guías con pendiente ln|1 − 4r| (para r = 0.6 y r = 1)."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+N, D = 100, 1.0
+dx, x = grilla(N)
+c_ini = np.exp(-((x - 0.5) ** 2) / (2 * 0.03**2))
+c_ini /= np.sum(c_ini) * dx
+k_fourier = 2 * np.pi * np.fft.fftfreq(N, dx)
+
+pasos_totales = 200
+n = np.arange(1, pasos_totales + 1)
+fig, ax = plt.subplots(figsize=(7, 3.8))
+for r in (0.25, 0.6, 1.0):
+    dt = r * dx**2 / D
+    c = c_ini.copy()
+    errores = []
+    for paso in n:
+        c = paso_ftcs(c, r)
+        exacta = np.fft.ifft(np.fft.fft(c_ini) * np.exp(-D * k_fourier**2 * paso * dt)).real
+        errores.append(np.abs(c - exacta).max())
+    ax.semilogy(n, errores, label=f"$r={r}$")
+    if r > 0.5:  # guía con pendiente ln|1 - 4r|, anclada en el último paso
+        guia, = ax.semilogy(n, errores[-1] * abs(1 - 4 * r) ** (n - pasos_totales), "k:", lw=1)
+guia.set_label("guía con pendiente $\\ln|1-4r|$")
+ax.set(xlabel="paso $n$", ylabel="error máximo", ylim=(1e-4, 1e100))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+**Los modos en el tiempo.** Con $r=0.4$, seguimos tres modos de $\cos(2\pi m x)$
+en $L=1$: uno lento ($m=1$, una onda en toda la barra), uno intermedio ($m=5$)
+y uno rápido ($m=40$, con longitud de onda de unas $2.5$ celdas).
+
+```{python}
+#| label: modos-tiempo
+
+N, D, r = 100, 1.0, 0.4
+dx, x = grilla(N)
+dt = r * dx**2 / D
+modos = {"lento": (1, 400), "intermedio": (5, 400), "rápido": (40, 30)}  # m y pasos
+
+amplitudes = {}
+for nombre, (m, pasos) in modos.items():
+    k = 2 * np.pi * m
+    modo = np.cos(k * x)
+    c = modo.copy()
+    a = [1.0]
+    for _ in range(pasos):
+        c = paso_ftcs(c, r)
+        a.append(2 * np.sum(c * modo) / N)
+    amplitudes[nombre] = np.abs(a)
+    xi = 1 - 4 * r * np.sin(k * dx / 2) ** 2
+    print(f"{nombre:>10} (m = {m:>2}): factor por paso  FTCS |ξ| = {abs(xi):.3f}"
+          f"   exacta exp(-D k² Δt) = {np.exp(-D * k**2 * dt):.3f}")
+```
+
+```{python}
+#| label: fig-modos
+#| fig-cap: "Amplitud de modos cos(2πmx) en función del tiempo. Líneas: solución exacta de la ecuación de difusión. Círculos: FTCS. Izquierda: modos lento (m = 1) e intermedio (m = 5) durante 400 pasos, con un círculo cada 20 pasos. Derecha: modo rápido (m = 40) en los primeros 30 pasos, un círculo por paso. Parámetros: L = 1, D = 1, N = 100 (Δx = 0.01), Δt = 4·10⁻⁵, r = 0.4."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, (ax_l, ax_r) = plt.subplots(1, 2, figsize=(9.5, 3.8))
+colores = {"lento": "C0", "intermedio": "C1", "rápido": "C2"}
+# (eje, modos, un círculo cada tantos pasos, límite inferior del eje y)
+paneles = ((ax_l, ("lento", "intermedio"), 20, 1e-9),
+           (ax_r, ("rápido",), 1, 1e-20))
+for ax, nombres, cada, piso in paneles:
+    for nombre in nombres:
+        m, pasos = modos[nombre]
+        k = 2 * np.pi * m
+        t = np.arange(pasos + 1) * dt
+        t_fino = np.linspace(0, t[-1], 400)
+        ax.semilogy(t_fino, np.exp(-D * k**2 * t_fino), "-", color=colores[nombre], lw=1.5,
+                    label=f"{nombre} ($m={m}$), exacta")
+        ax.semilogy(t[::cada], amplitudes[nombre][::cada], "o", mfc="none", ms=5,
+                    color=colores[nombre], label=f"{nombre} ($m={m}$), FTCS")
+    ax.set(xlabel="tiempo $t$", ylim=(piso, 3))
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.25)
+ax_l.set_ylabel("amplitud del modo")
+ax_l.set_title("modos lento e intermedio (400 pasos)", fontsize=10)
+ax_r.set_title("modo rápido (primeros 30 pasos)", fontsize=10)
+fig.tight_layout()
+plt.show()
+```
+
+Con los modos lento e intermedio, FTCS sigue a la exacta: las diferencias no
+se ven a esta escala.
+
+El modo rápido es otra historia. La exacta lo multiplica por
+$e^{-Dk^2\Delta t}\approx0.08$ en cada paso, y FTCS por
+$|\xi|=|1-4r\sin^2(k\Delta x/2)|\approx0.45$ (paso 4). Por eso, después de 30
+pasos, FTCS todavía conserva una amplitud de $10^{-11}$, mientras la exacta ya
+bajó de $10^{-20}$. El esquema es estable para $r=0.4$, pero no es preciso en
+los modos que la grilla apenas resuelve.
+
+**Consecuencia para el costo.** La condición $\Delta t\le\Delta x^2/(2D)$ tiene
+un precio. Para llegar a un tiempo $T$ fijo hacen falta $T/\Delta t\propto N^2$
+pasos, de $N$ celdas cada uno: el costo crece como $N^3$. Duplicar la
+resolución espacial cuesta **ocho veces** más cómputo.
+
+## 6. Métodos implícitos
+
+Si el límite viene de Euler explícito, probamos Euler implícito (clase 01). En
+FTCS evaluamos el laplaciano en el paso nuevo:
+
+$$
+c_j^{n+1}-r\left(c_{j+1}^{n+1}-2c_j^{n+1}+c_{j-1}^{n+1}\right)=c_j^n.
+$$
+
+Ahora los valores nuevos no se calculan uno por uno. Cada ecuación $j$
+involucra tres incógnitas, $c_{j-1}^{n+1}$, $c_j^{n+1}$ y $c_{j+1}^{n+1}$, así
+que hay que resolver un sistema lineal con una matriz **tridiagonal**. Se
+resuelve en un número de operaciones proporcional a $N$.
+
+Un método más preciso es **Crank–Nicolson**, que usa el promedio del laplaciano
+en $n$ y en $n+1$:
+
+$$
+c_j^{n+1}-\frac r2\left(c_{j+1}^{n+1}-2c_j^{n+1}+c_{j-1}^{n+1}\right)
+=c_j^n+\frac r2\left(c_{j+1}^n-2c_j^n+c_{j-1}^n\right).
+$$
+
+A la izquierda, las incógnitas del paso nuevo; a la derecha, valores conocidos.
+También es un sistema tridiagonal.
+
+Los tres esquemas se escriben juntos con un parámetro $\alpha$, el peso del
+paso nuevo. Abreviamos $\delta^2c_j=c_{j+1}-2c_j+c_{j-1}$:
+
+$$
+c_j^{n+1}-\alpha\,r\,\delta^2c_j^{n+1}=c_j^n+(1-\alpha)\,r\,\delta^2c_j^n.
+$$
+
+| $\alpha$ | Esquema |
+|---|---|
+| $0$ | FTCS (explícito) |
+| $1/2$ | Crank–Nicolson |
+| $1$ | Euler implícito |
+
+```{python}
+#| label: implicito
+
+def laplaciano(c):
+    """Laplaciano discreto sin el factor 1/dx², con flujo nulo."""
+    p = np.concatenate(([c[0]], c, [c[-1]]))
+    return p[2:] - 2 * c + p[:-2]
+
+
+def banda(N, r, alfa):
+    """Matriz tridiagonal I - alfa r L, con flujo nulo, en el formato de solve_banded."""
+    ab = np.zeros((3, N))
+    ab[0, 1:] = -alfa * r
+    ab[1, :] = 1 + 2 * alfa * r
+    ab[2, :-1] = -alfa * r
+    ab[1, 0] = ab[1, -1] = 1 + alfa * r
+    return ab
+
+
+def evolucionar(c, r, alfa, pasos):
+    """Avanza `pasos` pasos con el parámetro alfa: 0 es FTCS, 1/2 Crank–Nicolson, 1 implícito."""
+    ab = banda(len(c), r, alfa)
+    for _ in range(pasos):
+        c = solve_banded((1, 1), ab, c + (1 - alfa) * r * laplaciano(c))
+    return c
+```
+
+Los factores de amplificación de von Neumann son
+
+$$
+\xi_\text{implícito}=\frac{1}{1+4r\sin^2(k\Delta x/2)},\qquad
+\xi_\text{CN}=\frac{1-2r\sin^2(k\Delta x/2)}{1+2r\sin^2(k\Delta x/2)}.
+$$
+
+Ambos cumplen $|\xi|\le1$ para cualquier $r\ge0$. Controlamos la precisión
+con un modo de Fourier del problema con flujo nulo, comparado con la solución
+exacta del sistema de EDO espacial: así separamos el error temporal del
+espacial.
+
+```{python}
+#| label: precision-implicitos
+
+N, D, T, m = 200, 1.0, 0.05, 3
+dx, x = grilla(N)
+modo = np.cos(m * np.pi * x)
+exacta = np.exp(-4 * D / dx**2 * np.sin(m * np.pi * dx / 2) ** 2 * T) * modo
+
+print("    método   pasos       r   error")
+for nombre, alfa, pasos in (("FTCS", 0, 4000), ("implícito", 1, 20),
+                             ("implícito", 1, 40), ("implícito", 1, 80),
+                             ("CN", 0.5, 20), ("CN", 0.5, 40),
+                             ("CN", 0.5, 80)):
+    r = D * (T / pasos) / dx**2
+    error = np.abs(evolucionar(modo, r, alfa, pasos) - exacta).max()
+    print(f"{nombre:>10} {pasos:>7} {r:>7.1f}   {error:.1e}")
+```
+
+Con 80 pasos, 50 veces menos, Crank–Nicolson ya tiene un error menor que
+FTCS con 4000. Al duplicar los pasos, manteniendo fijo el tiempo final, el
+error del implícito baja aproximadamente a la mitad (orden 1) y el de
+Crank–Nicolson a la cuarta parte (orden 2). La tabla incluye 20, 40 y 80
+pasos para hacer visible esa comparación.
+
+**Antes de correr:** una condición inicial muy concentrada, casi una delta,
+se avanza con $r=10$. El valor exacto de la concentración nunca es negativo.
+¿Qué esperan de cada método?
+
+```{python}
+#| label: crank-nicolson-delta
+
+N = 200
+dx, x = grilla(N)
+delta = np.zeros(N)
+delta[N // 2] = 1 / dx
+for r in (1, 10):
+    for nombre, alfa in (("implícito", 1), ("CN", 0.5)):
+        c = evolucionar(delta, r, alfa, 1)
+        print(f"r = {r:>2}  {nombre:>9}: mínimo {c.min():>9.2e}  máximo {c.max():>8.2f}  Q {np.sum(c) * dx:.6f}")
+```
+
+```{python}
+#| label: fig-delta
+#| fig-cap: "Un paso con r = 10 sobre una condición inicial concentrada en una celda, con Euler implícito y con Crank–Nicolson."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+for nombre, alfa in (("implícito", 1), ("Crank–Nicolson", 0.5)):
+    ax.plot(x, evolucionar(delta, 10, alfa, 1), label=nombre)
+ax.axhline(0, color="k", lw=0.5)
+ax.set(xlabel="$x$", ylabel="$c$", xlim=(0.35, 0.65))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+El factor de Crank–Nicolson para los modos más rápidos se acerca a $-1$:
+no los amortigua, sólo cambia su signo. Con un paso grande y una condición
+inicial que los excita, quedan oscilaciones que violan el principio del
+máximo. Que un esquema sea **estable** no quiere decir que mantenga la
+física: en nuestra prueba, con $r=1$ no aparecen. El implícito amortigua esos
+modos y no oscila, a costa de la precisión.
+
+## 7. Convergencia
+
+Con FTCS hay dos parámetros, $\Delta t$ y $\Delta x$, y las tres preguntas
+son distintas. Las respondemos con un modo de Fourier del problema periódico
+en $[0,2\pi]$ y $D=1$ hasta $T=0.5$.
+
+**Antes de correr:** ¿cómo esperan que baje el error al reducir sólo $\Delta t$?
+¿Y al reducir sólo $\Delta x$? ¿Y al reducir ambos con $r$ fijo?
+
+```{python}
+#| label: convergencia
+
+D, T, modo_k = 1.0, 0.5, 2
+
+
+def ftcs_periodico(N, dt):
+    """FTCS en [0, 2π] con el modo cos(k x). Devuelve el error contra la EDP y contra las EDO espaciales."""
+    dx = 2 * np.pi / N
+    x = np.arange(N) * dx
+    r = D * dt / dx**2
+    pasos = int(round(T / dt))
+    c = np.cos(modo_k * x)
+    for _ in range(pasos):
+        c = paso_ftcs(c, r)
+    t = pasos * dt
+    edp = np.exp(-D * modo_k**2 * t) * np.cos(modo_k * x)
+    edo = np.exp(-4 * D / dx**2 * np.sin(modo_k * dx / 2) ** 2 * t) * np.cos(modo_k * x)
+    return np.abs(c - edp).max(), np.abs(c - edo).max()
+
+
+def orden(errores):
+    return np.log2(errores[:-1] / errores[1:])
+
+
+# a) Sólo el tiempo: N fijo, error contra la solución exacta de las EDO espaciales.
+N = 64
+dx = 2 * np.pi / N
+r_tiempo = np.array([0.4, 0.2, 0.1, 0.05])
+err_t = np.array([ftcs_periodico(N, r * dx**2 / D)[1] for r in r_tiempo])
+
+# b) Sólo el espacio: Δt muy chico, error contra la EDP.
+Ns = np.array([16, 32, 64, 128])
+err_x = np.array([ftcs_periodico(N, 1e-5)[0] for N in Ns])
+
+# c) Los dos juntos, con r fijo.
+err_xt = np.array([ftcs_periodico(N, 0.25 * (2 * np.pi / N) ** 2 / D)[0] for N in Ns])
+
+print("a) sólo Δt   :", " ".join(f"{e:.1e}" for e in err_t), "   orden:", np.round(orden(err_t), 2))
+print("b) sólo Δx   :", " ".join(f"{e:.1e}" for e in err_x), "   orden:", np.round(orden(err_x), 2))
+print("c) r = 0.25  :", " ".join(f"{e:.1e}" for e in err_xt), "   orden:", np.round(orden(err_xt), 2))
+```
+
+```{python}
+#| label: fig-convergencia
+#| fig-cap: "Error de FTCS al refinar el paso temporal con N fijo (izquierda) y al refinar la grilla (derecha), sin y con r fijo."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, (ax_t, ax_x) = plt.subplots(1, 2, figsize=(9.5, 3.8))
+dts = r_tiempo * dx**2 / D
+ax_t.loglog(dts, err_t, "o-", label="FTCS")
+ax_t.loglog(dts, err_t[0] * dts / dts[0], "k:", label="$\\propto\\Delta t$")
+ax_t.set(xlabel="$\\Delta t$", ylabel="error máximo")
+ax_x.loglog(2 * np.pi / Ns, err_x, "o-", label="sólo $\\Delta x$")
+ax_x.loglog(2 * np.pi / Ns, err_xt, "s-", label="$r=0.25$ fijo")
+ax_x.loglog(2 * np.pi / Ns, err_x[0] * (Ns[0] / Ns) ** 2, "k:", label="$\\propto\\Delta x^2$")
+ax_x.set(xlabel="$\\Delta x$")
+for ax in (ax_t, ax_x):
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+FTCS es de **primer orden en el tiempo y segundo en el espacio**, como
+anticipan Euler explícito y la diferencia centrada. Cuando se refinan los dos
+con $r$ fijo, $\Delta t\propto\Delta x^2$: el error espacial ($\Delta x^2$) y
+el temporal ($\Delta t\propto\Delta x^2$) son del mismo orden y el error total
+baja como $\Delta x^2$. Con $r$ fijo, duplicar $N$ divide el error por cuatro
+y multiplica el costo por ocho (sección 5.1).
+
+Reducir $\Delta x$ sin reducir $\Delta t$ no está en la lista porque no es una
+convergencia: apenas $r$ supera $1/2$, el error crece sin límite (sección 5).
+
+## 8. Precisión numérica: cuando el redondeo le gana al truncamiento
+
+Refinar la grilla no es gratis aun si $r$ se mantiene. La segunda derivada
+discreta resta tres números casi iguales cuando $\Delta x$ es chico y después
+divide por $\Delta x^2$, con lo que amplifica el error de redondeo. Lo
+medimos aplicando la diferencia centrada a $f(x)=\cos x$ en $x_0=1$, donde la
+derivada segunda exacta es $-\cos 1$.
+
+**Antes de correr:** ¿qué esperan que le pase al error cuando $\Delta x$
+baja de $1$ a $10^{-8}$?
+
+```{python}
+#| label: redondeo
+
+x0 = 1.0
+hs = 10.0 ** -np.arange(0.0, 9.0, 0.5)
+errores = np.abs((np.cos(x0 + hs) - 2 * np.cos(x0) + np.cos(x0 - hs)) / hs**2 + np.cos(x0))
+
+epsilon = np.finfo(float).eps
+print(f"ε = {epsilon:.1e}")
+h_optimo = (48 * epsilon) ** 0.25
+print(f"mínimo medido: Δx = {hs[errores.argmin()]:.1e}, error {errores.min():.1e}")
+print(f"estimación: Δx = (48 ε)^(1/4) = {h_optimo:.1e}")
+```
+
+```{python}
+#| label: fig-redondeo
+#| fig-cap: "Error de la diferencia centrada de la derivada segunda de cos x en x = 1. A la derecha domina el truncamiento (proporcional a Δx²); a la izquierda, el redondeo (proporcional a ε/Δx²)."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.loglog(hs, errores, "o-", ms=3, label="medido")
+ax.loglog(hs, hs**2 * np.cos(x0) / 12, "k:", label="truncamiento $\\Delta x^2/12$")
+ax.loglog(hs, 4 * epsilon / hs**2, "k--", label="cota de redondeo $4\\varepsilon/\\Delta x^2$")
+ax.set(xlabel="$\\Delta x$", ylabel="error", ylim=(1e-11, 10))
+ax.invert_xaxis()
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+plt.show()
+```
+
+**De dónde sale el $\Delta x$ óptimo.** Hay dos errores que compiten:
+
+- **Truncamiento.** Es el error de reemplazar la derivada por la diferencia
+  centrada: baja como $\Delta x^2/12$.
+- **Redondeo.** Cada valor de $\cos$ se guarda con un error relativo de hasta
+  $\varepsilon\approx2\times10^{-16}$, la precisión de la aritmética de doble
+  precisión. En el numerador $f(x_0+\Delta x)-2f(x_0)+f(x_0-\Delta x)$, con
+  pesos $1$, $2$ y $1$ y $|f|\le1$, esos errores suman como mucho unos
+  $4\varepsilon$.
+- **La amplificación.** El numerador se divide por $\Delta x^2$. Con
+  $\Delta x=10^{-4}$, $\Delta x^2=10^{-8}$: un error de $10^{-16}$ en el
+  numerador se vuelve $10^{-8}$ en la derivada. El redondeo no queda en
+  $10^{-16}$; aparece multiplicado por $1/\Delta x^2$, como $4\varepsilon/\Delta x^2$.
+
+Las dos curvas se cruzan cuando
+
+$$
+\frac{\Delta x^2}{12}=\frac{4\varepsilon}{\Delta x^2}
+\quad\Longleftrightarrow\quad
+\Delta x=(48\,\varepsilon)^{1/4}\approx3\times10^{-4}.
+$$
+
+En ese punto los dos errores valen $\Delta x^2/12\approx10^{-8}$. Es el mejor
+error posible, ocho órdenes de magnitud por encima de $\varepsilon$. Por debajo
+de ese $\Delta x$, refinar **empeora** el resultado. En FTCS el costo además crece como $N^3$: no tiene sentido ir
+más allá de donde el error de truncamiento deja de dominar. El apéndice
+*Precisión de punto flotante y diferencias finitas de orden alto* de
+`material/` trabaja este tema en detalle.
+
+## 9. Discusión en grupos: un resultado plausible
+
+Un informe presenta el siguiente análisis:
+
+> Estudiamos la difusión de un pulso gaussiano de calor en una barra
+> periódica de largo $L=1$ y $D=1$, $\sigma_0=0.03$, hasta $t=0.0063$.
+> Con $N=50$ celdas y $\Delta t=6\times10^{-5}$ el perfil es suave y el
+> error máximo contra la solución exacta es del 0.04 %. **Para mejorar la
+> precisión duplicamos la resolución, $N=100$, sin cambiar $\Delta t$.** El
+> perfil muestra ahora oscilaciones rápidas alrededor del pico, que no
+> aparecían con $N=50$. Las atribuimos a la física: un pulso estrecho
+> contiene componentes de alta frecuencia y la mayor resolución las resuelve.
+> El código conserva la cantidad total $Q$ hasta el redondeo.
+
+```{python}
+#| label: informe
+#| code-fold: true
+#| code-summary: "Código del informe"
+
+D, dt, pasos_informe, sigma0 = 1.0, 6e-5, 105, 0.03
+fig, ejes = plt.subplots(1, 2, figsize=(9.5, 3.6), sharey=True)
+for ax, N in zip(ejes, (50, 100)):
+    dx, x = grilla(N)
+    r = D * dt / dx**2
+    c0 = np.exp(-((x - 0.5) ** 2) / (2 * sigma0**2)) / (sigma0 * np.sqrt(2 * np.pi))
+    k_fourier = 2 * np.pi * np.fft.fftfreq(N, dx)
+    exacta = np.fft.ifft(np.fft.fft(c0) * np.exp(-D * k_fourier**2 * pasos_informe * dt)).real
+    c = c0.copy()
+    for _ in range(pasos_informe):
+        c = paso_ftcs(c, r)
+    ax.plot(x, c, "o-", ms=3, lw=1, label="FTCS")
+    ax.plot(x, exacta, "k--", lw=1, label="exacta")
+    ax.set(title=f"$N={N}$", xlabel="$x$", xlim=(0.2, 0.8))
+    print(f"N = {N:>3}: Q {np.sum(c) * dx:.12f}  error máximo / máximo exacto = {np.abs(c - exacta).max() / exacta.max():.1e}")
+ejes[0].set_ylabel("$c$")
+ejes[0].legend(fontsize=8)
+for ax in ejes:
+    ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+1. Calculen $r$ en las dos corridas. ¿Qué dice la condición de la sección 5?
+2. ¿Qué mirarían en la figura para saber si las oscilaciones son de la
+   física o del esquema? Piensen en la longitud de onda y en cómo cambian si
+   se repite la corrida con más pasos.
+3. ¿Qué experimento, con cuántas corridas, pondría a prueba la afirmación?
+4. Escriban la afirmación que sí se puede hacer.
+
+## 10. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- el caminante de la clase 07, con pasos chicos, obedece la ecuación de
+  difusión con $D=a^2/(2\Delta t)$, y de ahí sale el factor $2d$ del
+  desplazamiento cuadrático medio;
+- FTCS es Euler explícito aplicado a un sistema de EDO acopladas: es de primer
+  orden en el tiempo y de segundo en el espacio;
+- FTCS es estable sólo si $r=D\Delta t/\Delta x^2\le1/2$; refinar $\Delta x$
+  exige reducir $\Delta t$ con su cuadrado, y el costo crece como $N^3$;
+- los métodos implícitos son estables para cualquier $r$, pero la estabilidad
+  no garantiza que se mantenga la positividad;
+- por debajo de cierto $\Delta x$, el redondeo domina sobre el truncamiento.
+
+No podemos concluir que:
+
+- una solución que conserva la cantidad total $Q$ y es suave sea correcta: la
+  inestabilidad también conserva $Q$;
+- una grilla más fina mejore la solución si no se ajusta $\Delta t$;
+- unas oscilaciones sean físicas sin haber descartado que sean del esquema.
+
+<!-- ### Puente con la clase 09
+
+En la clase 09 agregamos un término de reacción y pasamos a dos dimensiones.
+La condición de estabilidad cambia: con cuatro vecinos, $r\le1/4$. Y ahora
+la pregunta no es sólo si la solución es estable, sino si un patrón que
+aparece en la simulación es del modelo o de la grilla. En la práctica de hoy
+terminan y entregan el TP 05.
+
+Más adelante, en la clase 11, la ecuación de Schrödinger dependiente del
+tiempo tiene la misma forma que la de difusión, $\partial_t\psi=D\,\partial_x^2\psi$,
+pero con $D$ imaginario. Todo lo que hoy depende de que $D$ sea real y
+positivo, como el criterio de estabilidad, se va a volver a mirar. -->
+
+### Pregunta de salida
+
+> **Si un colega duplica la resolución espacial de una simulación de
+> difusión, ¿qué otro parámetro tiene que cambiar y cuánto más cuesta?**
+
+## Nota histórica: de la teoría del calor a la estabilidad numérica
+
+- **Joseph Fourier** presentó su teoría del calor en 1807 y la publicó como
+  libro en 1822. Para resolver la ecuación inventó el desarrollo en senos y
+  cosenos que usamos acá modo por modo.
+- **Adolf Fick** escribió en 1855 la ley de difusión que lleva su nombre,
+  por analogía con la de Fourier para el calor.
+- **Albert Einstein** mostró en 1905 que el movimiento browniano es un
+  caminante aleatorio y que su desplazamiento cuadrático medio se relaciona con
+  $D$: el puente que cruzamos hoy.
+- **Richard Courant, Kurt Friedrichs y Hans Lewy** mostraron en 1928 que, al
+  discretizar una ecuación en derivadas parciales, la relación entre el paso
+  temporal y el espacial no es libre; su condición, para ondas, es la
+  contraparte de la que vimos hoy para la difusión.
+- **John von Neumann** desarrolló en la década de 1940 el análisis por modos de
+  Fourier; las primeras publicaciones que lo describen son de 1950 y 1951.
+  **John Crank** y **Phyllis Nicolson** publicaron su método en 1947.
+
+## Referencias
+
+- J. Fourier, *Théorie analytique de la chaleur*, Firmin Didot (1822).
+- A. Fick, "Ueber Diffusion", *Annalen der Physik* **170**, 59–86 (1855).
+- A. Einstein, "Über die von der molekularkinetischen Theorie der Wärme
+  geforderte Bewegung von in ruhenden Flüssigkeiten suspendierten Teilchen",
+  *Annalen der Physik* **322**, 549–560 (1905).
+- R. Courant, K. Friedrichs y H. Lewy, "Über die partiellen
+  Differenzengleichungen der mathematischen Physik", *Mathematische Annalen*
+  **100**, 32–74 (1928).
+- J. Crank y P. Nicolson, "A practical method for numerical evaluation of
+  solutions of partial differential equations of the heat-conduction type",
+  *Proceedings of the Cambridge Philosophical Society* **43**, 50–67 (1947).
+- G. G. O'Brien, M. A. Hyman y S. Kaplan, "A study of the numerical solution of
+  partial differential equations", *Journal of Mathematics and Physics* **29**,
+  223–251 (1951): primera publicación del análisis de von Neumann.
+- R. J. LeVeque, *Finite Difference Methods for Ordinary and Partial
+  Differential Equations*, SIAM (2007). Capítulo 9.
+- W. H. Press et al., *Numerical Recipes*, Cambridge University Press (3.ª
+  ed., 2007). Capítulo 20.

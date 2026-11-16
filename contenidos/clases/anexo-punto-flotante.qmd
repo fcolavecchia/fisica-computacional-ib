@@ -1,0 +1,589 @@
+---
+title: "Punto flotante: los números que la computadora puede escribir"
+subtitle: "Física Computacional 2026"
+# El sitio no ejecuta código por defecto; esta clase sí, al renderizar.
+execute:
+  enabled: true
+  daemon: false
+# publicar.sh genera el notebook en contenidos/notebooks/ (no se renderiza).
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/comodin-punto-flotante.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/comodin-punto-flotante.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** Una computadora guarda cada número real en 64 bits.
+> ¿Qué números puede escribir exactamente, qué hace con los demás y cuándo
+> esas pequeñas diferencias cambian el resultado de una cuenta?
+
+Al terminar podremos leer cómo se guarda un número en punto flotante, estimar
+el error de redondeo de una operación, reconocer los valores especiales
+(`inf`, `nan`, `-0.0`) y predecir cuándo una suma pierde información. También
+separaremos lo que fija el estándar **IEEE 754** de lo que decide cada lenguaje
+o biblioteca.
+
+## 1. Un aperitivo
+
+```{python}
+#| label: aperitivo
+print(0.1 + 0.2 == 0.3)
+print(0.1 + 0.2)
+print(format(0.25, ".30f"))
+print(format(0.1, ".30f"))
+```
+
+**Antes de seguir:** ¿por qué $0.25$ se imprime con todos ceros y $0.1$ no?
+¿Es un error de Python?
+
+No es un error: la computadora guarda $0.1$ como el número más cercano que
+puede escribir en **base dos**. En binario, $0.25=2^{-2}$ tiene una
+representación finita, pero $0.1$ tiene un desarrollo periódico,
+
+$$
+0.1 = 0.0\overline{0011}_2 ,
+$$
+
+de la misma manera que $1/3=0.\overline{3}$ en base diez. Con una cantidad
+finita de bits hay que cortar y redondear.
+
+## 2. Cómo se guarda un número
+
+### 2.1. El formato de doble precisión
+
+El estándar **IEEE 754** (del *Institute of Electrical and Electronics
+Engineers*) define los formatos de punto flotante que usan prácticamente
+todos los procesadores actuales. El tipo `float` de Python y `np.float64` son
+números de **doble precisión** de 64 bits:
+
+| Campo     | Bits | Contenido                                 |
+| --------- | ---: | ----------------------------------------- |
+| signo     |    1 | $s=0$ positivo, $s=1$ negativo            |
+| exponente |   11 | entero $E$ entre $0$ y $2047$             |
+| fracción  |   52 | dígitos binarios $f_1f_2\ldots f_{52}$    |
+
+Para $1\leq E\leq2046$ el número representado es
+
+$$
+\boxed{x=(-1)^s\,(1.f_1f_2\ldots f_{52})_2\times2^{E-1023}.}
+$$
+
+El $1$ antes del punto no se guarda: siempre está ahí, salvo en los casos
+especiales de la sección 3. Veamos los bits de algunos números.
+
+```{python}
+#| label: bits
+import struct
+
+
+def bits(x):
+    """Devuelve signo, exponente y fracción de un float de 64 bits."""
+    entero = struct.unpack(">Q", struct.pack(">d", x))[0]
+    cadena = f"{entero:064b}"
+    return cadena[0], cadena[1:12], cadena[12:]
+
+
+for x in (1.0, -2.0, 0.25, 0.1):
+    s, e, f = bits(x)
+    print(f"{x:>5}  s={s}  E={e} ({int(e, 2):4d})  f={f}")
+```
+
+En $0.1$ se ve el período `1001` repetido hasta que se acaban los bits; el
+último grupo, `1010`, es el resultado de **redondear**.
+
+### 2.2. Una grilla no uniforme
+
+Entre dos potencias de dos consecutivas, $2^e$ y $2^{e+1}$, hay exactamente
+$2^{52}$ números representables, separados por la misma distancia
+$2^{e-52}$. Al pasar a la potencia siguiente la separación se duplica. Los
+números de punto flotante forman una grilla cuyo **espaciado absoluto crece**
+con $|x|$, pero cuyo **espaciado relativo** se mantiene casi constante.
+
+```{python}
+#| label: espaciado
+import numpy as np
+
+info = np.finfo(np.float64)
+print(f"épsilon de máquina     eps  = {info.eps:.3e}  (= 2**-52)")
+print(f"mayor número finito    max  = {info.max:.3e}")
+print(f"menor normal positivo  tiny = {info.tiny:.3e}")
+print(f"menor subnormal             = {info.smallest_subnormal:.3e}")
+print()
+print("       x      distancia al siguiente   relativa")
+for x in (1e-10, 1.0, 1e3, 1e16):
+    print(f"{x:8.0e}  {np.spacing(x):22.3e}  {np.spacing(x) / x:9.3e}")
+
+# Espaciado relativo para graficar, en simple y doble precisión.
+x_64 = np.logspace(-2, 2, 4000)
+x_32 = x_64.astype(np.float32)
+relativo_64 = np.spacing(x_64) / x_64
+relativo_32 = np.spacing(x_32) / x_32
+```
+
+```{python}
+#| label: fig-espaciado
+#| fig-cap: "Distancia relativa entre un número y el siguiente representable. Dentro de cada potencia de dos la distancia absoluta es fija, por eso la relativa decrece; al cruzar una potencia de dos se duplica."
+#| code-fold: true
+import matplotlib.pyplot as plt
+
+plt.loglog(x_64, relativo_64, label="float64")
+plt.loglog(x_64, relativo_32, label="float32")
+plt.xlabel("$x$")
+plt.ylabel("espaciado relativo")
+plt.legend()
+plt.show()
+```
+
+### 2.3. Épsilon de máquina y error de redondeo
+
+El **épsilon de máquina**, $\varepsilon=2^{-52}\approx2.2\times10^{-16}$, es
+la distancia entre $1$ y el siguiente número representable. Cuando una
+operación da un resultado que no está en la grilla, IEEE 754 exige
+**redondear al más cercano**. Por eso el error relativo de redondear un número
+es a lo sumo la mitad del espaciado relativo,
+
+$$
+\boxed{\mathrm{fl}(x)=x(1+\delta),\qquad |\delta|\leq u=\frac{\varepsilon}{2}=2^{-53}\approx1.1\times10^{-16}.}
+$$
+
+$u$ se llama **unidad de redondeo**. En términos prácticos: un `float64`
+conserva unos **15 a 16 dígitos decimales significativos**; un `float32`,
+unos 7.
+
+> **Convención.** Algunos textos llaman "épsilon de máquina" a $u$ y no a
+> $\varepsilon$. `np.finfo(...).eps` y `sys.float_info.epsilon` devuelven
+> $\varepsilon=2^{-52}$.
+
+IEEE 754 garantiza que **suma, resta, multiplicación, división y raíz
+cuadrada** den el resultado exacto redondeado al número representable más
+cercano. **No lo garantiza** para `exp`, `sin`, `log` y demás funciones: su
+precisión depende de la biblioteca matemática. Dos máquinas pueden dar
+resultados que difieren en el último bit.
+
+```{python}
+#| label: epsilon
+eps = np.finfo(np.float64).eps
+print(1.0 + eps == 1.0)
+print(1.0 + eps / 2 == 1.0)
+```
+
+**Para discutir:** si $1+\varepsilon/2$ es exactamente el punto medio entre
+$1$ y $1+\varepsilon$, ¿por qué el resultado es $1$? El estándar resuelve los
+empates eligiendo el vecino cuyo último bit es cero (*redondeo al par*).
+
+## 3. Los bordes de la grilla: `inf`, `nan` y compañía
+
+Los valores extremos del exponente, $E=0$ y $E=2047$, no siguen la fórmula
+de arriba. IEEE 754 los reserva para casos especiales:
+
+| $E$    | fracción | Valor                                                        |
+| ------ | -------- | ------------------------------------------------------------ |
+| $0$    | cero     | $+0$ o $-0$, según el signo                                  |
+| $0$    | no nula  | **subnormal**: $(0.f)_2\times2^{-1022}$, por debajo de `tiny` |
+| $2047$ | cero     | $+\infty$ o $-\infty$                                         |
+| $2047$ | no nula  | `nan` (*not a number*)                                        |
+
+### 3.1. Qué fija el estándar
+
+El estándar define una **aritmética cerrada**: toda operación devuelve algún
+número de punto flotante, aunque el resultado matemático no exista o no
+quepa. Además levanta una **señal** (*flag*) que indica qué ocurrió.
+
+| Operación                     | Resultado IEEE 754 | Señal                 |
+| ----------------------------- | ------------------ | --------------------- |
+| $1/\infty$                    | $0$                | ninguna               |
+| $-1/\infty$                   | $-0$               | ninguna               |
+| $1/0$                         | $+\infty$          | división por cero     |
+| $-1/0$                        | $-\infty$          | división por cero     |
+| $0/0$, $\infty-\infty$, $0\cdot\infty$, $\sqrt{-1}$ | `nan` | operación inválida |
+| resultado mayor que `max`     | $\pm\infty$        | desborde (*overflow*) |
+| resultado menor que `tiny`    | subnormal o $0$    | *underflow*           |
+
+Otras reglas del estándar que sorprenden:
+
+- `nan` **no es igual a nada**, ni siquiera a sí mismo: `nan == nan` es
+  `False`. Para detectarlo se usa `np.isnan`.
+- $+0$ y $-0$ son iguales al comparar (`0.0 == -0.0` es `True`), pero se
+  distinguen al dividir: $1/(-0)=-\infty$.
+- Los **subnormales** permiten llegar a cero de a poco: $10^{-320}$ todavía
+  es representable, con menos dígitos significativos; $10^{-330}$ ya es $0$.
+
+### 3.2. Qué decide cada lenguaje
+
+IEEE 754 dice que, por omisión, la operación **sigue** con el resultado
+especial y levanta la señal. Cada lenguaje elige qué hacer con esa señal: no
+mirarla, avisar o detener el programa. Python y NumPy toman decisiones
+distintas para la misma operación.
+
+```{python}
+#| label: lenguajes
+import math
+import warnings
+
+
+def probar(expresion):
+    """Evalúa una expresión e informa su resultado, aviso o excepción."""
+    with warnings.catch_warnings(record=True) as avisos:
+        warnings.simplefilter("always")
+        try:
+            resultado = repr(eval(expresion))
+        except Exception as error:
+            resultado = f"excepción {type(error).__name__}"
+    aviso = f"  [aviso: {avisos[0].message}]" if avisos else ""
+    print(f"{expresion:28s} -> {resultado}{aviso}")
+
+
+for expresion in (
+    "1 / np.inf",
+    "np.inf - np.inf",
+    "1e308 * 10",
+    "2.0 ** 10000",
+    "math.exp(1000)",
+    "1 / 0.0",
+    "math.sqrt(-1)",
+    "np.exp(1000.0)",
+    "np.float64(1) / 0",
+    "np.array([1.0, -1.0]) / 0",
+    "np.sqrt(-1.0)",
+):
+    probar(expresion)
+```
+
+Algunas cosas para notar:
+
+- `np.inf` es un `float` común de Python. Por eso `1 / np.inf` y
+  `np.inf - np.inf` se calculan con la aritmética de Python, sin avisos.
+- **Python no es coherente consigo mismo**: `1e308 * 10` devuelve `inf` en
+  silencio, pero `2.0 ** 10000` y `math.exp(1000)` lanzan `OverflowError`, y
+  `1 / 0.0` lanza `ZeroDivisionError`. Son decisiones del lenguaje, no del
+  estándar.
+- **NumPy sigue el estándar** y convierte cada señal en un
+  `RuntimeWarning`. El cálculo continúa con `inf` o `nan`.
+
+| Comportamiento                                  | Lo decide            |
+| ----------------------------------------------- | -------------------- |
+| Formato de 64 bits, redondeo al más cercano      | IEEE 754             |
+| Existencia de `inf`, `nan`, $-0$ y subnormales   | IEEE 754             |
+| $1/\infty=0$, $1/0=\infty$ con señal             | IEEE 754             |
+| Excepción en `1 / 0.0` o en `math.exp(1000)`     | Python               |
+| Aviso en lugar de excepción                      | NumPy (configurable) |
+| Precisión de `exp`, `sin`, `log`                 | biblioteca matemática |
+| Orden en que se suman los elementos de un array  | implementación (sección 4) |
+
+En NumPy la reacción ante cada señal se puede cambiar. Dentro de una
+simulación conviene, muchas veces, que un `nan` **detenga el programa** en
+el paso donde aparece, en lugar de propagarse en silencio hasta la figura
+final:
+
+```{python}
+#| label: errstate
+with np.errstate(divide="ignore"):
+    print(np.array([1.0]) / 0)  # sin aviso
+
+try:
+    with np.errstate(invalid="raise"):
+        np.sqrt(np.array([-1.0]))
+except FloatingPointError as error:
+    print("detenido:", error)
+```
+
+`np.seterr(...)` hace lo mismo de forma global, para todo el programa.
+
+> **No es punto flotante, pero se parece.** Los enteros de NumPy tienen una
+> cantidad fija de bits y, al desbordar, **dan la vuelta**:
+> `np.array([2**62]) * 4` da `[0]`. Los enteros de Python no tienen ese
+> límite: `2**62 * 4` da el resultado exacto. Esto no lo regula IEEE 754.
+
+## 4. Sumar muchos números
+
+### 4.1. Sumar algo chico no cambia nada
+
+Si $|b|$ es menor que la mitad del espaciado alrededor de $a$, el resultado
+exacto de $a+b$ se redondea otra vez a $a$: el sumando chico se **absorbe**.
+
+```{python}
+#| label: absorcion
+print(1e16 + 1 == 1e16)
+print(1e16 + 2)
+
+s = 1.0
+for _ in range(1_000_000):
+    s += 1e-16
+print("1 + un millón de veces 1e-16, de a uno:", s)
+print("1 + (un millón de veces 1e-16), agrupado:", 1.0 + 1_000_000 * 1e-16)
+```
+
+Cerca de $10^{16}$ los números representables están separados por $2$; el
+$1$ cae justo en el medio y el redondeo al par vuelve a $10^{16}$. En el
+segundo ejemplo cada $10^{-16}$ es menor que $u$: sumados de a uno contra
+$1$, **ninguno** deja rastro. Agrupados primero, su total ya no es
+despreciable.
+
+### 4.2. La suma de 1 a $N$
+
+Usemos simple precisión (`float32`, 24 bits significativos) para que los
+efectos aparezcan con números chicos. Todo lo que sigue vale también para
+`float64`, con $2^{53}$ en lugar de $2^{24}$.
+
+**Antes de correr:** la suma $1+2+\cdots+N$ es un entero, $N(N+1)/2$. Un
+`float32` representa exactamente todos los enteros hasta $2^{24}\approx
+1.7\times10^7$. ¿A partir de qué $N$ esperan que la suma acumulada deje de
+ser exacta?
+
+```{python}
+#| label: suma-enteros
+N = 20_000
+enteros = np.arange(1, N + 1)
+exacta = np.cumsum(enteros)  # enteros de 64 bits: exacta
+
+# np.cumsum suma en orden: S_n = S_(n-1) + n.
+acumulada_32 = np.cumsum(enteros.astype(np.float32))
+primera_falla = np.argmax(acumulada_32 != exacta)
+
+print(f"2**24 = {2**24}")
+print(f"primer N con error: {primera_falla + 1}")
+print(f"  exacta = {exacta[primera_falla]}, float32 = {acumulada_32[primera_falla]:.0f}")
+print(f"N = {N}: exacta = {exacta[-1]}, float32 = {acumulada_32[-1]:.0f}")
+```
+
+La primera falla aparece cuando la suma parcial supera $2^{24}$: desde ahí
+sólo se pueden escribir enteros pares, después múltiplos de cuatro, y así
+siguiendo.
+
+### 4.3. ¿Diverge la serie armónica en la computadora?
+
+La serie armónica,
+
+$$
+H_N=\sum_{k=1}^{N}\frac1k\simeq\ln N+\gamma,\qquad \gamma\approx0.5772,
+$$
+
+diverge. Pero en punto flotante, a partir de cierto $k$, el término $1/k$
+es más chico que la mitad del espaciado alrededor de la suma acumulada y se
+absorbe.
+
+**Antes de correr:** en `float32`, mientras la suma está entre $8$ y $16$,
+el espaciado es $2^{3-23}=2^{-20}$. ¿Para qué $k$ el término $1/k$ deja de
+modificar la suma?
+
+```{python}
+#| label: armonica
+N = 10_000_000
+k = np.arange(1, N + 1)
+terminos_64 = 1.0 / k
+terminos_32 = terminos_64.astype(np.float32)
+
+parciales_32 = np.cumsum(terminos_32)  # suma en orden, en float32
+parciales_64 = np.cumsum(terminos_64)  # referencia para comparar
+estancada = np.argmax(parciales_32[1:] == parciales_32[:-1]) + 1
+
+print(f"la suma en float32 deja de crecer en k = {k[estancada]} (2**21 = {2**21})")
+print(f"  valor float32: {parciales_32[estancada]:.6f}")
+print(f"  ln k + gamma : {np.log(k[estancada]) + 0.5772156649:.6f}")
+print(f"H_N con N = {N:.0e}: float32 = {parciales_32[-1]:.6f}, "
+      f"float64 = {parciales_64[-1]:.6f}")
+```
+
+```{python}
+#| label: fig-armonica
+#| fig-cap: "Suma parcial de la serie armónica en simple precisión y en doble precisión. La suma en float32 se detiene en k = 2^21."
+#| code-fold: true
+muestras = np.unique(np.logspace(0, np.log10(N), 600).astype(int)) - 1
+plt.semilogx(k[muestras], parciales_64[muestras], label="float64")
+plt.semilogx(k[muestras], parciales_32[muestras], "--", label="float32, en orden")
+plt.axvline(2**21, color="gray", lw=0.8)
+plt.xlabel("$k$")
+plt.ylabel("$H_k$")
+plt.legend()
+plt.show()
+```
+
+Se estanca en $k=2^{21}$, como predice la cuenta. Además, el valor
+estancado **no** es $H_{2^{21}}$: es mayor. **Para discutir:** ¿por qué los
+redondeos se equivocan sistemáticamente hacia arriba y no se compensan?
+
+### 4.4. El orden importa
+
+Sumar en otro orden da otro resultado. La regla general es **sumar de menor
+a mayor**, para que los términos chicos se acumulen entre sí antes de
+encontrarse con la suma grande. Comparemos varias estrategias con
+`math.fsum`, que devuelve la suma exacta redondeada:
+
+```{python}
+#| label: orden
+def kahan(terminos):
+    """Suma compensada de Kahan: arrastra el error de cada paso."""
+    suma = terminos.dtype.type(0)
+    compensacion = terminos.dtype.type(0)
+    for x in terminos:
+        y = x - compensacion
+        t = suma + y
+        compensacion = (t - suma) - y
+        suma = t
+    return suma
+
+
+referencia = math.fsum(terminos_64)
+estrategias = {
+    "en orden (1, 1/2, ...)": lambda a: np.cumsum(a)[-1],
+    "al revés (1/N, ..., 1)": lambda a: np.cumsum(a[::-1])[-1],
+    "np.sum": np.sum,
+    "Kahan": kahan,
+}
+
+print(f"referencia: {referencia:.15f}\n")
+print(f"{'estrategia':24s} {'error float32':>14s} {'error float64':>14s}")
+for nombre, sumar in estrategias.items():
+    error_32 = float(sumar(terminos_32)) - referencia
+    error_64 = float(sumar(terminos_64)) - referencia
+    print(f"{nombre:24s} {error_32:14.2e} {error_64:14.2e}")
+```
+
+Al leer la tabla:
+
+- La columna de `float32` incluye el error de redondear cada término $1/k$
+  a simple precisión, unos $10^{-7}$ relativo. Ninguna estrategia puede
+  bajar de eso.
+- `np.sum` no suma en orden: en la implementación actual de NumPy usa
+  **suma por pares** (*pairwise*), que agrupa los términos en bloques y
+  reduce mucho el error acumulado. Es un detalle de implementación, no una
+  garantía del estándar ni de la documentación de NumPy.
+- **Kahan** guarda en `compensacion` la parte que se perdió en cada paso y
+  la reincorpora en el siguiente. Cuesta unas cuatro operaciones por
+  término.
+- Desde Python 3.12, la función `sum` de Python también usa una suma
+  compensada para `float`. Por eso `sum([0.1] * 10)` da `1.0`, y un lazo
+  `s += 0.1` diez veces da `0.9999999999999999`.
+
+Cuando una suma da distinto en dos máquinas, en dos versiones de una
+biblioteca o al paralelizar un cálculo, casi siempre es por esto: **cambió
+el orden de las operaciones**. Por eso los controles de un resultado
+numérico se escriben con **tolerancias**, no con `==`.
+
+### 4.5. Un caso que ya escribimos: el tiempo
+
+En los integradores avanzamos el tiempo paso a paso. Acumular `t += h`
+también es una suma de muchos términos.
+
+```{python}
+#| label: tiempo
+h = 0.1
+t, pasos = 0.0, 0
+while t < 1.0:
+    t += h
+    pasos += 1
+print(f"pasos dados: {pasos}, t final = {t!r}")
+
+t = 0.0
+for _ in range(1000):
+    t += h
+print(f"acumulado en 1000 pasos: {t!r}   n*h: {1000 * h!r}")
+```
+
+Con `while t < t_final` se da un paso de más, porque después de diez pasos
+$t=0.9999999999999999<1$. Conviene **contar pasos con un entero** y
+calcular $t_n=t_0+nh$, o generar la grilla con `np.linspace`.
+
+## 5. Restar números parecidos
+
+Restar dos números cercanos es exacto, pero el resultado conserva el error
+**relativo** que ya traían los operandos. Si cada uno tenía un error de
+$10^{-16}$ y su diferencia es $10^{-8}$ veces más chica, el error relativo
+de la diferencia sube a $10^{-8}$. Esto se llama **cancelación
+catastrófica**.
+
+```{python}
+#| label: cancelacion
+print("        x         1 - cos x       2 sin^2(x/2)      x^2/2")
+for x in (1e-4, 1e-6, 1e-8):
+    print(f"{x:8.0e}  {1 - np.cos(x):17.9e}  {2 * np.sin(x / 2)**2:17.9e}  {x**2 / 2:10.3e}")
+```
+
+Las dos primeras columnas son la misma función matemática. La segunda
+fórmula evita restar $1-\cos x$ y conserva todos los dígitos.
+
+### 5.1. Derivadas numéricas: truncamiento contra redondeo
+
+La derivada hacia adelante,
+
+$$
+f'(x)\approx\frac{f(x+h)-f(x)}{h},
+$$
+
+tiene un **error de truncamiento** del orden de $h|f''|/2$, que baja al
+achicar $h$. Pero en el numerador restamos dos números parecidos, cada uno
+con error del orden de $u|f|$; al dividir por $h$, el **error de redondeo**
+crece como $u|f|/h$. El error total es aproximadamente
+
+$$
+e(h)\approx\frac{h}{2}|f''(x)|+\frac{2u\,|f(x)|}{h},
+$$
+
+que tiene un mínimo para $h\sim\sqrt{u}\approx10^{-8}$. Con la derivada
+centrada, de truncamiento $\mathcal O(h^2)$, el mínimo se corre a
+$h\sim u^{1/3}\approx10^{-5}$.
+
+```{python}
+#| label: derivada
+x0 = 1.0
+pasos_h = np.logspace(-16, 0, 33)
+exacta = np.cos(x0)
+error_adelante = np.abs((np.sin(x0 + pasos_h) - np.sin(x0)) / pasos_h - exacta)
+error_centrada = np.abs(
+    (np.sin(x0 + pasos_h) - np.sin(x0 - pasos_h)) / (2 * pasos_h) - exacta
+)
+
+for nombre, error in (("adelante", error_adelante), ("centrada", error_centrada)):
+    mejor = np.argmin(error)
+    print(f"{nombre}: error mínimo {error[mejor]:.1e} con h = {pasos_h[mejor]:.0e}")
+```
+
+```{python}
+#| label: fig-derivada
+#| fig-cap: "Error de la derivada numérica de sen x en x = 1. A la derecha domina el truncamiento; a la izquierda, el redondeo."
+#| code-fold: true
+plt.loglog(pasos_h, error_adelante, "o-", label="hacia adelante")
+plt.loglog(pasos_h, error_centrada, "s-", label="centrada")
+plt.xlabel("$h$")
+plt.ylabel("error absoluto")
+plt.legend()
+plt.show()
+```
+
+La misma tensión aparece en una tabla de convergencia: al achicar mucho el
+paso de un integrador, el error deja de bajar como $h^p$ y aparece un
+**piso de redondeo**. Los órdenes $p_{\mathrm{obs}}$ que se calculen allí
+ya no miden el método.
+
+## 6. Lo que nos llevamos
+
+| Situación                         | Qué hacer                                             |
+| --------------------------------- | ----------------------------------------------------- |
+| Comparar dos `float`              | `np.isclose` o `math.isclose`, con tolerancia elegida |
+| Sumar muchos términos             | `np.sum` o `math.fsum`; de menor a mayor              |
+| Avanzar el tiempo                 | contar pasos enteros; $t_n=t_0+nh$                    |
+| Restar cantidades parecidas       | reescribir la fórmula para evitar la resta            |
+| Detectar `nan` o `inf` temprano   | `np.errstate(invalid="raise")`, `np.isfinite`         |
+| Elegir la precisión               | `float64` por omisión; `float32` sólo con motivo      |
+| Elegir $h$ en derivadas numéricas | ni muy grande ni muy chico: $\sqrt{u}$ como punto de partida |
+
+Y una distinción para tener presente al leer cualquier resultado raro:
+
+- **IEEE 754 fija** el formato, el redondeo de las operaciones básicas y los
+  valores especiales. Eso es igual en cualquier lenguaje.
+- **El lenguaje o la biblioteca decide** qué hacer ante una señal
+  (excepción, aviso o nada), la precisión de las funciones matemáticas y el
+  orden de las sumas. Eso puede cambiar de Python a NumPy, de una versión a
+  otra o de una máquina a otra.
+
+**Para pensar:**
+
+1. ¿Cuánto vale $1+2+\cdots+N$ calculado en `float64` para $N=10^8$? ¿Y
+   para $N=2\times10^8$? Predecir antes de correr.
+2. Las raíces de $x^2+10^8x+1=0$ se pueden calcular con la fórmula usual.
+   ¿Cuál de las dos sufre cancelación? ¿Cómo se reescribe para evitarla?
+3. En `float64`, ¿en qué $k$ esperan que se estanque la serie armónica?
+   A mil millones de sumas por segundo, ¿cuánto tardaría una computadora en
+   comprobarlo?
