@@ -1115,6 +1115,57 @@ caja?
   concreto es de Turing sigue siendo difícil. La conexión con experimentos
   químicos requiere evidencia específica del sistema estudiado.
 
+## Nota: cómo se forman los dedos
+
+En el embrión, la mano empieza como un **esbozo**, una paleta de células
+sin estructura. Dentro de ella aparecen bandas periódicas donde se condensa
+el cartílago, que después serán los huesos de los dedos. Las marca la
+expresión del gen *Sox9*. ¿Quién decide dónde va cada dedo?
+
+La explicación clásica era la **información posicional**: un gradiente
+químico a lo ancho del esbozo, y cada célula lee su posición en él y actúa
+en consecuencia. La alternativa es la de Turing: los dedos son la longitud
+de onda de un patrón que se organiza solo, como el de la sección 4.
+
+**La pista: cambiar la longitud de onda (2012).** Sheth y colaboradores
+fueron quitando, en ratones, copias de los genes *Hox* distales
+(*Hoxa13* y *Hoxd11* a *Hoxd13*), sobre un fondo sin el gen *Gli3* que ya
+produce dedos de más. Cuantas menos copias, **más dedos, más finos y más
+juntos**. Es lo que se espera si los *Hox* no dicen "acá va el dedo 3",
+sino que ajustan la longitud de onda de un mecanismo de Turing, como $D_v$
+en la tabla de la sección 4. El número de dedos sale de cuántas longitudes
+de onda entran en el ancho del esbozo: es el problema de la caja de la
+sección 5.2, en un embrión.
+
+**Las moléculas: el modelo BSW (2014).** Raspopovic y colaboradores
+identificaron una red de tres componentes, **Bmp–Sox9–Wnt**:
+
+- **Sox9** es un factor de transcripción: actúa dentro de cada célula y no
+  difunde;
+- **Bmp** y **Wnt** son señales que las células secretan y que difunden
+  entre ellas;
+- Bmp favorece la expresión de *Sox9*, Wnt la reprime, y Sox9 a su vez
+  regula a las señales.
+
+Simularon la red en dos dimensiones, con la forma del esbozo, su
+crecimiento y gradientes de otras señales que modulan los parámetros a lo
+largo de la mano. El modelo reprodujo el patrón de *Sox9* en embriones
+normales y en embriones con las vías de Bmp o Wnt alteradas.
+
+**Diferencias con nuestro modelo.**
+
+- Son tres especies, y una no difunde. Con un componente inmóvil, la
+  condición de la sección 3, que el inhibidor difunda mucho más rápido, ya
+  no es necesaria: hay redes que forman patrones de Turing con señales que
+  difunden igual (Marcon y colaboradores, 2016).
+- El dominio crece mientras se forma el patrón, y los parámetros cambian de
+  un lugar a otro. Por eso los dedos se abren en abanico en vez de ser rayas
+  paralelas.
+
+La forma de argumentar es la de esta clase. Un patrón periódico no prueba
+que sea de Turing. Lo que convenció fue **variar un parámetro y ver cambiar
+la longitud de onda como predice el modelo**.
+
 ## Referencias
 
 - R. A. Fisher, "The wave of advance of advantageous genes", *Annals of
@@ -1134,7 +1185,16 @@ caja?
   Applications*, Springer (3.ª ed., 2003). Capítulos 1 y 2.
 - M. C. Cross y P. C. Hohenberg, "Pattern formation outside of equilibrium",
   *Reviews of Modern Physics* **65**, 851–1112 (1993).
-
-**Material de consulta** del archivo de la materia, en `material/notebooks/`:
-`04.1_EDP_Reacción difusión`, que usa el mismo modelo de activador e
-inhibidor y el análisis lineal.
+- R. Sheth, L. Marcon, M. F. Bastida, M. Junco, L. Quintana, R. Dahn,
+  M. Kmita, J. Sharpe y M. A. Ros, "Hox genes regulate digit patterning by
+  controlling the wavelength of a Turing-type mechanism", *Science*
+  **338**, 1476–1480 (2012).
+- J. Raspopovic, L. Marcon, L. Russo y J. Sharpe, "Digit patterning is
+  controlled by a Bmp-Sox9-Wnt Turing network modulated by morphogen
+  gradients", *Science* **345**, 566–570 (2014).
+- A. Zuniga y R. Zeller, "In Turing's hands: The making of digits",
+  *Science* **345**, 516 (2014). Comentario accesible sobre el trabajo
+  anterior.
+- L. Marcon, X. Diego, J. Sharpe y P. Müller, "High-throughput mathematical
+  analysis identifies Turing networks for patterning with equally diffusing
+  signals", *eLife* **5**, e14022 (2016).
