@@ -27,6 +27,9 @@ limitaciones.
 - [Dinámica molecular y Metropolis](05-dinamica-molecular/index.md): barras de
   error con muestras correlacionadas y comparación entre el promedio temporal
   de Newton y el de ensamble de Metropolis.
+- [Incendios en una grilla](06-incendios/index.md): autómata estocástico y
+  camino mínimo, qué parte del frente es del fuego y qué parte de la grilla,
+  focos en un mapa generado, auditoría de informes y pavesas.
 
 Los enlaces a los repositorios de trabajo aparecen en la página de cada
 actividad. En la actividad inicial y el TP 01, cada estudiante crea un

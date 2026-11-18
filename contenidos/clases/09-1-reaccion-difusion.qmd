@@ -1,0 +1,1140 @@
+---
+title: "Reacción-difusión en dos dimensiones"
+subtitle: "Física Computacional 2026"
+fecha: a definir
+# Esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/09-1-reaccion-difusion.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/09-1-reaccion-difusion.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** ¿Los patrones que aparecen en una simulación de
+> reacción-difusión son del modelo o de la grilla?
+
+En la clase 08 la difusión sólo alisa: cualquier perfil termina plano. Ahora
+agregamos una **reacción** local, que crea o destruye la cantidad que se
+difunde, y la situación cambia. Con una reacción de crecimiento aparece un
+**frente** que avanza con velocidad propia. Con dos especies que difunden a
+distinta velocidad, la difusión puede **crear estructura** desde un estado
+uniforme. Es la idea de Turing para explicar cómo se forman rayas y manchas.
+
+Estos patrones se ven bien en una pantalla, y ahí está el riesgo: una grilla
+cuadrada tiene direcciones privilegiadas, y una caja de tamaño finito permite
+sólo ciertas longitudes de onda. Hoy aprendemos a separar lo que pone el
+modelo de lo que pone el método numérico.
+
+```{python}
+#| label: imports
+#| include: false
+
+import time
+
+import numpy as np
+import matplotlib.pyplot as plt
+from IPython.display import HTML
+from matplotlib import animation
+
+
+def animar(figura, actualizar, cuadros, intervalo=100):
+    """Animación de matplotlib embebida en la página, sin depender de ffmpeg."""
+    pelicula = animation.FuncAnimation(figura, actualizar, frames=cuadros, interval=intervalo)
+    html = pelicula.to_jshtml(default_mode="loop")
+    plt.close(figura)
+    return HTML(html)
+```
+
+## 1. Un frente con referencia: Fisher–KPP
+
+La ecuación de **Fisher–KPP** (por Fisher y por Kolmogorov, Petrovsky y
+Piskunov, 1937) es la difusión de la clase 08 más un crecimiento logístico:
+
+$$
+\frac{\partial u}{\partial t}=D\,\frac{\partial^2u}{\partial x^2}+g\,u(1-u).
+$$
+
+La cantidad $u$ es una densidad normalizada a su valor de saturación: $u=0$ es
+vacío, $u=1$ es lleno. Los dos son estados uniformes; $u=0$ es inestable
+(cualquier semilla crece) y $u=1$ es estable. Si $u=1$ a la izquierda y $u=0$ a
+la derecha, el estado lleno invade al vacío mediante un **frente**.
+Es el límite continuo de caminantes que se reproducen, como los de la clase 07
+con nacimientos.
+
+Antes de calcular nada, lo vemos. Simulamos con $D=g=1$, con FTCS más el
+término de reacción en cada paso, flujo nulo en los bordes y
+$r=D\Delta t/\Delta x^2=0.2$. La condición inicial es un escalón: $u=1$ para
+$x<5$ y $u=0$ a la derecha. Corremos hasta $t=60$ con tres tamaños de celda y
+guardamos la posición del frente, el punto donde $u$ cruza $1/2$.
+
+```{python}
+#| label: fisher
+
+def paso_fisher(u, D, g, dx, dt):
+    """Un paso de FTCS más reacción logística, con flujo nulo en los bordes."""
+    p = np.concatenate(([u[0]], u, [u[-1]]))
+    return u + dt * (D * (p[2:] - 2 * u + p[:-2]) / dx**2 + g * u * (1 - u))
+
+
+def posicion_frente(u, x, dx):
+    """Posición donde u cruza 1/2, con interpolación lineal."""
+    i = np.argmax(u < 0.5)
+    return x[i - 1] + (u[i - 1] - 0.5) / (u[i - 1] - u[i]) * dx
+
+
+def correr_fisher(dx, r=0.2, D=1.0, g=1.0, largo=300.0, T=60.0, cada=0.5):
+    dt = r * dx**2 / D
+    x = (np.arange(int(largo / dx)) + 0.5) * dx
+    u = np.where(x < 5, 1.0, 0.0)
+    pasos_por_medida = int(round(cada / dt))
+    tiempos, posiciones, perfiles = [], [], {}
+    for k in range(int(round(T / dt)) + 1):
+        if k % pasos_por_medida == 0:
+            tiempos.append(k * dt)
+            posiciones.append(posicion_frente(u, x, dx))
+            if round(k * dt) in (10, 20, 30) and abs(k * dt - round(k * dt)) < 1e-9:
+                perfiles[round(k * dt)] = u.copy()
+        u = paso_fisher(u, D, g, dx, dt)
+    return x, np.array(tiempos), np.array(posiciones), perfiles
+
+
+D, g = 1.0, 1.0
+frentes = {dx: correr_fisher(dx, D=D, g=g) for dx in (1.0, 0.5, 0.25)}
+```
+
+```{python}
+#| label: fig-fisher-perfiles
+#| fig-cap: "Fisher–KPP con D = g = 1 y Δx = 0.25: perfiles de u en t = 10, 20 y 30. El frente avanza sin deformarse."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+x, _, _, perfiles = frentes[0.25]
+fig, ax = plt.subplots(figsize=(6.5, 3.4))
+for t, u in perfiles.items():
+    ax.plot(x, u, label=f"$t={t}$")
+ax.set(xlabel="$x$", ylabel="$u$", xlim=(0, 80))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+El escalón se suaviza enseguida y después el perfil **se traslada sin cambiar
+de forma**, a un ritmo casi constante. Es un frente viajero.
+¿A qué velocidad avanza, y de qué depende?
+
+**Velocidad del frente.** El frente separa la zona llena, atrás, de la vacía,
+adelante, hacia donde avanza. En la punta del frente $u\ll1$: hay pocos
+individuos, y el término $u^2$ de la reacción es despreciable frente a $u$.
+Ahí la ecuación es lineal,
+
+$$
+\partial_tu=D\,\partial_x^2u+g\,u,
+$$
+
+la difusión de la clase 08 más un crecimiento exponencial. Si la población
+arranca concentrada en un punto, como un pulso en el origen en $t=0$, la
+solución es la gaussiana de la clase 08 multiplicada por $e^{gt}$:
+
+$$
+u(x,t)\propto\frac{1}{\sqrt{4\pi Dt}}\,e^{\,gt-x^2/(4Dt)}.
+$$
+
+El crecimiento sube $u$ en todas partes y la difusión lo extiende.
+
+**¿Dónde está el frente?** Un frente no tiene un borde nítido: $u$ pasa de 1
+a 0 en un ancho finito. Para darle una posición elegimos un **nivel**, un
+valor fijo $u_0$, y seguimos el punto $x(t)$ donde $u=u_0$. En la simulación
+usamos $u_0=1/2$. Otro nivel da otro punto, corrido una distancia fija si el
+frente no se deforma, que avanza a la misma velocidad.
+
+En la solución lineal, tomando logaritmo, el punto donde $u=u_0$ cumple
+
+$$
+gt-\frac{x^2}{4Dt}-\frac12\ln t=C,
+$$
+
+con $C$ una constante que depende de $u_0$ y de la población inicial. Para
+$t$ grande, $gt$ y $x^2/(4Dt)$ crecen como $t$, y los otros términos mucho
+más despacio. A orden principal, $gt=x^2/(4Dt)$, es decir $x=2\sqrt{gD}\,t$.
+La velocidad es
+
+$$
+c^*=2\sqrt{gD}.
+$$
+
+El frente es **arrastrado por su punta**: la velocidad la fija la zona donde
+$u$ es chica, y la saturación de atrás sólo le da forma.
+
+**Corrección logarítmica.** Si no despreciamos el término $\tfrac12\ln t$,
+que viene del prefactor $1/\sqrt t$, para $t$ grande
+
+$$
+x(t)\approx c^*t-\tfrac12\sqrt{D/g}\,\ln t.
+$$
+
+El frente se atrasa cada vez más respecto de $c^*t$, aunque su velocidad,
+$c^*-\tfrac12\sqrt{D/g}/t$, tiende a $c^*$ como $1/t$.
+
+**Lo que cambia la saturación.** Hasta acá usamos la ecuación linealizada,
+que crece sin límite. Detrás de la punta, la gaussiana por $e^{gt}$ acumula
+una población enorme que difunde hacia adelante y empuja a la punta. En
+Fisher–KPP, con el término $-gu^2$, $u$ no pasa de 1: esa población no
+existe, y la punta recibe menos. Una forma de calcularlo es tratar a la zona
+saturada como una pared que absorbe y avanza con el frente. Con esa pared, el
+prefactor pasa de $t^{-1/2}$ a $t^{-3/2}$, y la misma cuenta cambia el
+coeficiente del logaritmo de $1/2$ a $3/2$. El resultado riguroso es de
+Bramson (1983):
+
+$$
+x(t)\approx c^*t-\tfrac32\sqrt{D/g}\,\ln t.
+$$
+
+**Otra forma de verlo.** Una cola $u\propto e^{-\lambda(x-ct)}$ resuelve la
+ecuación lineal si $c=D\lambda+g/\lambda$: cada pendiente avanza a su propia
+velocidad. Para $c<c^*$, $\lambda$ es complejo y $u$ oscilaría tomando valores
+negativos, imposibles para una densidad, así que $c^*$ es la mínima velocidad
+posible. Una cola inicial más suave que $e^{-\sqrt{g/D}\,x}$ impone un frente
+más rápido. Nuestro escalón se corta y no impone ninguna cola, y el frente
+va a $c^*$.
+
+Esa fórmula es un control **independiente** del código. Con $D=g=1$,
+$c^*=2$.
+
+Medimos la velocidad ajustando una recta a $x(t)$ en una ventana finita, entre
+$t_1$ y $t_2$. Como referencia, aplicamos **el mismo ajuste, en los mismos
+tiempos**, a
+
+$$
+x_\text{ref}(t)=c^*t-\frac32\sqrt{\frac Dg}\,\ln t.
+$$
+
+Llamamos $c_\text{ventana}$ a la pendiente de esa recta. Una constante
+aditiva en $x_\text{ref}$ no cambia la pendiente. Esta referencia es
+asintótica: omite correcciones de tiempo finito, así que la discrepancia
+con ella no mide exclusivamente error numérico. Para estudiar convergencia
+comparamos también las velocidades entre grillas sucesivas.
+
+**Antes de medir:** ajustamos la velocidad del frente entre $t=30$ y $t=60$,
+para los tres tamaños de celda. ¿Cómo debería depender de $\Delta x$?
+
+```{python}
+#| label: velocidad-fisher
+
+c_asintotica = 2 * np.sqrt(g * D)
+t1, t2 = 30.0, 60.0
+# Mismos tiempos y mismo estimador para todas las grillas y la referencia.
+tiempos_ajuste = np.arange(t1, t2 + 0.25, 0.5)
+x_referencia = c_asintotica * tiempos_ajuste - 1.5 * np.sqrt(D / g) * np.log(tiempos_ajuste)
+c_ventana = np.polyfit(tiempos_ajuste, x_referencia, 1)[0]
+
+velocidades = {}
+for dx, (_, tiempos, posiciones, _) in frentes.items():
+    posiciones_ajuste = np.interp(tiempos_ajuste, tiempos, posiciones)
+    velocidades[dx] = np.polyfit(tiempos_ajuste, posiciones_ajuste, 1)[0]
+
+print(f"c* = 2√(gD) = {c_asintotica:.3f};  con la corrección logarítmica en [{t1:.0f}, {t2:.0f}]: {c_ventana:.3f}")
+for dx, c in velocidades.items():
+    print(f"Δx = {dx:<5} c medida = {c:.3f}   discrepancia con referencia = {abs(c - c_ventana):.3f}")
+diferencias_c = np.abs(np.diff(list(velocidades.values())))
+orden_c = np.log2(diferencias_c[0] / diferencias_c[1])
+print("diferencias entre grillas sucesivas:", np.round(diferencias_c, 4))
+print(f"orden observado entre las tres grillas: {orden_c:.2f}")
+```
+
+```{python}
+#| label: fig-fisher-posicion
+#| fig-cap: "Posición del frente en función del tiempo para tres tamaños de celda, con rectas de pendiente c* y c_ventana que pasan por el punto final de Δx = 0.25."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+_, tiempos, posiciones, _ = frentes[0.25]
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+for dx, (_, t_dx, pos_dx, _) in frentes.items():
+    ax.plot(t_dx, pos_dx, label=f"$\\Delta x={dx}$")
+ax.plot(tiempos, posiciones[-1] + c_asintotica * (tiempos - tiempos[-1]), "k:", lw=1, label="pendiente $c^*$")
+ax.plot(tiempos, posiciones[-1] + c_ventana * (tiempos - tiempos[-1]), "k--", lw=1, label="pendiente $c_\\mathrm{ventana}$")
+ax.set(xlabel="$t$", ylabel="posición del frente")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+El resultado tiene dos lecciones:
+
+- **La velocidad no es 2 todavía.** La corrección logarítmica es una propiedad
+  de la ecuación, no un error numérico: el frente se acerca a $c^*$ como $1/t$.
+  La diferencia entre $c^*=2$ y la referencia con corrección (aproximadamente $1.966$) es de
+  1.7 % y no baja al refinar la grilla.
+- **La diferencia entre grillas disminuye al refinar.** Si
+  $c_{\Delta x}=c_0+A\Delta x^p+\cdots$, el cociente entre diferencias
+  sucesivas es $2^p$. Con tres grillas obtenemos un único orden observado,
+  no una prueba de que ya estemos en el régimen asintótico. Esperamos $p=2$:
+  tanto la diferencia centrada, de error $O(\Delta x^2)$, como Euler, de
+  error $O(\Delta t)$ con $\Delta t\propto\Delta x^2$, contribuyen a ese orden.
+
+La reacción y la difusión se suman en el paso explícito: sus condiciones
+de estabilidad no se verifican por separado. Por ejemplo, al linealizar
+alrededor de $u=1$, la reacción aporta $-g$; el modo espacial de mayor
+frecuencia exige $4r+g\Delta t\le2$. Aquí $r=0.2$ y $\Delta t\le0.2$,
+así que se cumple. Es un control local alrededor de ese estado, no una
+garantía para cualquier amplitud o reacción.
+
+## 2. FTCS en dos dimensiones
+
+En un plano, el estado es una matriz $u_{ij}$ y el laplaciano discreto suma
+los **cinco puntos**: la celda y sus cuatro vecinas.
+
+$$
+\nabla^2u\Big|_{ij}\approx
+\frac{u_{i+1,j}+u_{i-1,j}+u_{i,j+1}+u_{i,j-1}-4u_{ij}}{\Delta x^2}.
+$$
+
+El análisis de von Neumann del modo $e^{i(k_xx+k_yy)}$ da
+
+$$
+\xi=1-4r\left[\sin^2\frac{k_x\Delta x}{2}+\sin^2\frac{k_y\Delta x}{2}\right].
+$$
+
+El factor $\xi$ nunca pasa de $1$, así que el peligro está del otro lado:
+FTCS es estable si $\xi\ge-1$ para todos los modos. El $\xi$ más negativo
+aparece cuando los dos senos valen $1$, es decir $k_x\Delta x=k_y\Delta
+x=\pi$. Es la onda más corta que la grilla puede representar: $u_{ij}$ cambia
+de signo de una celda a la siguiente en las dos direcciones, $+-+-$, como las
+casillas blancas y negras de un **tablero de ajedrez**. En ese modo las cuatro
+vecinas tienen el signo opuesto al de la celda central, el laplaciano
+discreto vale $-8u_{ij}/\Delta x^2$, y
+
+$$
+\xi=1-8r.
+$$
+
+Si $r>1/4$, $\xi<-1$: el tablero cambia de signo en cada paso y su amplitud
+crece. La condición es
+
+$$
+\boxed{r\le\frac14\quad\Longleftrightarrow\quad\Delta t\le\frac{\Delta x^2}{4D}.}
+$$
+
+En $d$ dimensiones, $r\le1/(2d)$: cada vecina más resta peso a la celda
+central. Con dos especies, la que difunde más rápido fija la restricción
+**difusiva**. Si hay reacción, también hay que controlar la estabilidad
+del paso completo; $r\le1/4$ por sí solo no la garantiza.
+
+**Las vecinas con `np.roll`.** Para escribir el laplaciano sin recorrer las
+celdas una por una usamos `np.roll(c, s, eje)`. Esa función desplaza todo el
+arreglo `s` lugares a lo largo de `eje`, y lo que sale por un extremo entra
+por el otro:
+
+```{python}
+#| label: roll
+
+fila = np.arange(5)
+print("fila              :", fila)
+print("np.roll(fila,  1) :", np.roll(fila, 1))
+print("np.roll(fila, -1) :", np.roll(fila, -1))
+```
+
+Después de `np.roll(fila, 1)`, en la posición `i` queda el valor que estaba
+en `i-1`: cada celda "ve" a su vecina de la izquierda. Con `-1` ve a la de la
+derecha. En una matriz, el eje elige la dirección:
+
+| Expresión | Valor en `[i, j]` |
+|---|---|
+| `np.roll(c, 1, 0)` | `c[i-1, j]` |
+| `np.roll(c, -1, 0)` | `c[i+1, j]` |
+| `np.roll(c, 1, 1)` | `c[i, j-1]` |
+| `np.roll(c, -1, 1)` | `c[i, j+1]` |
+
+Sumar los cuatro desplazamientos y restar `4 * c` da el laplaciano de cinco
+puntos en todas las celdas a la vez. Como lo que sale por un borde entra por
+el otro, la celda `0` tiene como vecina a la `n-1`: es un **borde periódico**,
+sin código extra. En Fisher–KPP queríamos flujo nulo y por eso agregamos
+copias de los extremos con `np.concatenate`. `np.roll` no sirve para ese
+borde.
+
+```{python}
+#| label: ftcs-2d
+
+def laplaciano_2d(c):
+    """Laplaciano de cinco puntos sin el factor 1/dx², con borde periódico."""
+    return (np.roll(c, 1, 0) + np.roll(c, -1, 0) + np.roll(c, 1, 1) + np.roll(c, -1, 1) - 4 * c)
+
+
+def paso_ftcs_2d(c, r):
+    return c + r * laplaciano_2d(c)
+
+
+# Control: el tablero de ajedrez crece con el factor |1 - 8r| de von Neumann.
+n = 64
+tablero = 1e-3 * np.cos(np.pi * np.arange(n))[:, None] * np.cos(np.pi * np.arange(n))[None, :]
+print("      r   |1 - 8r|   crecimiento medido por paso")
+for r in (0.2, 0.25, 0.26, 0.3, 0.5):
+    c = tablero.copy()
+    m = 30
+    for _ in range(m):
+        c = paso_ftcs_2d(c, r)
+    medido = (np.abs(c).max() / 1e-3) ** (1 / m)
+    print(f"{r:>7.2f}   {abs(1 - 8 * r):>6.2f}   {medido:>8.2f}")
+```
+
+### 2.1. Vectorizar y el costo
+
+La alternativa a `np.roll` es un doble bucle de Python que visita cada celda y
+suma sus cuatro vecinas, con `%` para el borde periódico. Hace la misma
+cuenta, pero Python interpreta cada operación por separado. Con `np.roll`, en
+cambio, cada desplazamiento y cada suma es una sola operación sobre todo el
+arreglo, que NumPy ejecuta en código compilado. Verificamos que dan lo mismo
+y medimos cuánto cuesta cada uno.
+
+```{python}
+#| label: vectorizar
+
+def paso_con_bucles(c, r):
+    n = c.shape[0]
+    nuevo = c.copy()
+    for i in range(n):
+        for j in range(n):
+            vecinas = c[(i + 1) % n, j] + c[(i - 1) % n, j] + c[i, (j + 1) % n] + c[i, (j - 1) % n]
+            nuevo[i, j] = c[i, j] + r * (vecinas - 4 * c[i, j])
+    return nuevo
+
+
+def tiempo_por_paso(funcion, c, repeticiones):
+    inicio = time.perf_counter()
+    for _ in range(repeticiones):
+        funcion(c, 0.2)
+    return (time.perf_counter() - inicio) / repeticiones
+
+
+c = np.random.default_rng(0).random((128, 128))
+print("bucles y np.roll coinciden:", np.allclose(paso_con_bucles(c, 0.2), paso_ftcs_2d(c, 0.2)))
+t_bucles = tiempo_por_paso(paso_con_bucles, c, 3)
+t_roll = tiempo_por_paso(paso_ftcs_2d, c, 100)
+print(f"128×128: bucles {t_bucles * 1e3:.2f} ms por paso, np.roll {t_roll * 1e3:.3f} ms; cociente {t_bucles / t_roll:.0f}")
+```
+
+El costo de integrar hasta un tiempo fijo es
+
+$$
+\underbrace{N^2}_{\text{celdas}}\times\underbrace{T/\Delta t\propto N^2}_{\text{pasos}}=N^4.
+$$
+
+**Duplicar la resolución cuesta 16 veces más,** y en tres dimensiones, 32.
+Es la versión en dos dimensiones del $N^3$ de la clase 08.
+
+## 3. Inestabilidad de Turing
+
+Consideramos dos campos, uno **activador** $u$ y uno **inhibidor** $v$.
+A diferencia de la densidad de Fisher, son variables efectivas
+adimensionales: pueden tomar valores negativos y no se interpretan como
+concentraciones absolutas de dos especies. Su evolución es
+
+$$
+\begin{aligned}
+\partial_tu&=D_u\nabla^2u+u-u^3-v+a,\\
+\partial_tv&=D_v\nabla^2v+b\,(u-v).
+\end{aligned}
+$$
+
+Es un modelo de tipo FitzHugh–Nagumo. La activadora se refuerza a sí misma
+($u-u^3$ y $+a$) y excita a $v$; la inhibidora la apaga. Tomamos
+$D_u=1$, $D_v=10$, $a=0.005$ y $b=1$: **el inhibidor difunde diez veces más
+rápido que el activador.**
+
+Para abreviar, llamamos $f(u,v)=u-u^3-v+a$ y $h(u,v)=b\,(u-v)$ a las dos
+reacciones.
+
+### 3.1. El estado uniforme
+
+Buscamos primero la solución más simple: $u$ y $v$ iguales en todo el plano
+y constantes en el tiempo. Ahí el laplaciano y la derivada temporal se
+anulan, y quedan las reacciones solas: $f=0$ y $h=0$. De $h=0$ sale $u=v$, y
+reemplazando en $f=0$ queda $u^3=a$:
+
+$$
+u^*=v^*=a^{1/3}\approx0.171.
+$$
+
+Es una solución exacta del sistema: si arrancamos ahí, nada cambia nunca. La
+pregunta es si es **estable**. La simulación arranca del estado uniforme más
+ruido; si las perturbaciones chicas se apagan, el plano queda uniforme. Si
+alguna crece, aparece estructura.
+
+### 3.2. Linealizar alrededor del estado uniforme
+
+Escribimos $u=u^*+\delta u$ y $v=v^*+\delta v$, con $\delta u$ y $\delta v$
+chicas. Desarrollando las reacciones a primer orden, como $f(u^*,v^*)=0$,
+
+$$
+f\approx\frac{\partial f}{\partial u}\,\delta u+\frac{\partial f}{\partial v}\,\delta v,
+\qquad
+h\approx\frac{\partial h}{\partial u}\,\delta u+\frac{\partial h}{\partial v}\,\delta v,
+$$
+
+con las derivadas evaluadas en $(u^*,v^*)$. Esas cuatro derivadas forman la
+**matriz jacobiana**
+
+$$
+J=\begin{pmatrix}\partial_uf&\partial_vf\\\partial_uh&\partial_vh\end{pmatrix}
+=\begin{pmatrix}1-3u^{*2}&-1\\b&-b\end{pmatrix}.
+$$
+
+El signo de cada elemento es el papel de cada especie. $J_{11}>0$: la
+activadora se refuerza a sí misma. $J_{21}>0$: la activadora produce
+inhibidora. $J_{12}<0$: la inhibidora apaga a la activadora. $J_{22}<0$: la
+inhibidora decae sola. Las perturbaciones cumplen un sistema **lineal**,
+
+$$
+\partial_t\begin{pmatrix}\delta u\\\delta v\end{pmatrix}
+=J\begin{pmatrix}\delta u\\\delta v\end{pmatrix}
++\begin{pmatrix}D_u&0\\0&D_v\end{pmatrix}\nabla^2\begin{pmatrix}\delta u\\\delta v\end{pmatrix}.
+$$
+
+### 3.3. Un modo de Fourier por vez
+
+Como el sistema es lineal y sus coeficientes no dependen de la posición, cada
+modo de Fourier evoluciona por su cuenta. Es lo mismo que hicimos en el
+análisis de von Neumann. Probamos con una onda plana de número de onda
+$\mathbf k$,
+
+$$
+\begin{pmatrix}\delta u\\\delta v\end{pmatrix}=\begin{pmatrix}A(t)\\B(t)\end{pmatrix}e^{i\mathbf k\cdot\mathbf x}.
+$$
+
+El laplaciano de la onda es $-k^2$ por la onda, con $k=|\mathbf k|$, y las
+amplitudes cumplen
+
+$$
+\frac{d}{dt}\begin{pmatrix}A\\B\end{pmatrix}=M(k)\begin{pmatrix}A\\B\end{pmatrix},
+\qquad
+M(k)=J-k^2\begin{pmatrix}D_u&0\\0&D_v\end{pmatrix}.
+$$
+
+Es un sistema de dos ecuaciones lineales con coeficientes constantes. Sus
+soluciones son $e^{\sigma t}$, con $\sigma$ los dos autovalores de $M(k)$.
+Llamamos **tasa de crecimiento** $\sigma(k)$ a la mayor parte real de los
+dos. El modo de número de onda $k$ crece si $\sigma(k)>0$ y se apaga si
+$\sigma(k)<0$.
+
+### 3.4. Cuándo aparece la inestabilidad
+
+Una matriz de $2\times2$ tiene los dos autovalores con parte real negativa si
+y sólo si su traza es negativa y su determinante positivo. Lo usamos en dos
+pasos.
+
+1. **Sin difusión** ($k=0$, $M=J$). Pedimos que el estado uniforme sea
+   estable: $\operatorname{tr}J<0$ y $\det J>0$. Con nuestros parámetros se
+   cumple; lo verifica el código de abajo.
+2. **Con difusión.** La traza de $M(k)$ es
+   $\operatorname{tr}J-k^2(D_u+D_v)$: la difusión la hace todavía más
+   negativa. Lo único que puede fallar es el determinante,
+
+   $$
+   \det M(k)=\det J-k^2\,(D_vJ_{11}+D_uJ_{22})+D_uD_vk^4.
+   $$
+
+   Para que sea negativo en algún rango de $k$, el término del medio tiene que
+   restar, y eso exige $D_vJ_{11}+D_uJ_{22}>0$. Como $J_{11}>0$ y $J_{22}<0$,
+   hace falta que $D_v$ sea bastante más grande que $D_u$. Con difusiones
+   iguales, $D_vJ_{11}+D_uJ_{22}=D\operatorname{tr}J<0$, el determinante
+   nunca se anula y **no hay inestabilidad**.
+
+Si hay una banda de $k$ con $\sigma(k)>0$, el estado uniforme es estable
+frente a perturbaciones uniformes, pero inestable justo a esas escalas. Es la
+**inestabilidad de Turing**: la difusión, que siempre alisa, desestabiliza
+porque actúa a distinta velocidad en las dos especies.
+
+La intuición es **activación local e inhibición a distancia**. Un exceso de
+$u$ en un punto crece por sí mismo y produce $v$. Como $v$ difunde rápido,
+se escapa hacia los alrededores y apaga a $u$ ahí, mientras el exceso
+original sigue creciendo. El resultado son zonas altas de $u$ separadas por
+zonas bajas, a una distancia fijada por las dos difusiones.
+
+**Antes de simular:** calculamos la longitud de onda de crecimiento máximo,
+$\lambda_\text{T}=2\pi/k_\text{máx}$, de la teoría lineal. Es la predicción
+con la que se va a comparar la simulación. ¿Qué escala esperan que seleccione
+el modelo?
+
+```{python}
+#| label: teoria-lineal
+
+Du, a, b = 1.0, 0.005, 1.0
+
+
+def jacobiano(a, b):
+    u0 = np.cbrt(a)
+    return u0, np.array([[1 - 3 * u0**2, -1.0], [b, -b]])
+
+
+def crecimiento(k, Dv):
+    """Mayor parte real de los autovalores de J - k² diag(Du, Dv), para cada k."""
+    _, J = jacobiano(a, b)
+    return np.array([np.linalg.eigvals(J - kk**2 * np.diag([Du, Dv])).real.max() for kk in k])
+
+
+def prediccion_lineal(Dv):
+    k = np.linspace(1e-3, 2, 20000)
+    lam = crecimiento(k, Dv)
+    inestables = k[lam > 0]
+    return 2 * np.pi / k[lam.argmax()], lam.max(), (inestables.min(), inestables.max())
+
+
+u0, J = jacobiano(a, b)
+Dv = 10.0
+print(f"estado uniforme u* = v* = {u0:.4f}")
+print(f"sin difusión: tr J = {np.trace(J):.4f} < 0, det J = {np.linalg.det(J):.4f} > 0 (estable)")
+longitud_lineal, lam_max, (k_min, k_max_inestable) = prediccion_lineal(Dv)
+print(f"con difusión: inestable para k entre {k_min:.3f} y {k_max_inestable:.3f}")
+print(f"crecimiento máximo σ = {lam_max:.3f} en una longitud de onda {longitud_lineal:.2f}  (Δx = 1)")
+```
+
+Para ver el papel de la difusión, graficamos $\sigma(k)$ en dos casos con la
+**misma reacción** y la misma difusión del activador, $D_u=1$. Lo único que
+cambia es la difusión del inhibidor:
+
+- **nuestro modelo**, con $D_u=1$ y $D_v=10$: el inhibidor difunde diez veces
+  más rápido;
+- **un control**, con $D_u=D_v=1$: las dos especies difunden igual.
+
+Cada punto de una curva dice si una perturbación de número de onda $k$, es
+decir de longitud de onda $2\pi/k$, crece ($\sigma>0$) o se apaga
+($\sigma<0$).
+
+```{python}
+#| label: fig-dispersion
+#| fig-cap: "Tasa de crecimiento σ(k) de una perturbación de número de onda k alrededor del estado uniforme, con la misma reacción y D_u = 1 en los dos casos. Con D_v = 10 hay una banda de k que crece (sombreada); con D_v = D_u = 1 ningún modo crece. La línea de puntos marca el k de crecimiento máximo."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+k = np.linspace(1e-3, 1.2, 400)
+k_turing = 2 * np.pi / longitud_lineal
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.plot(k, crecimiento(k, 10.0), label="modelo: $D_u=1$, $D_v=10$")
+ax.plot(k, crecimiento(k, 1.0), "--", label="control: $D_u=D_v=1$")
+ax.axvspan(k_min, k_max_inestable, color="C0", alpha=0.1, label="banda inestable")
+ax.axvline(k_turing, color="k", ls=":", lw=1,
+           label=f"crecimiento máximo: $k={k_turing:.2f}$, $\\lambda_\\mathrm{{T}}={longitud_lineal:.1f}$")
+ax.axhline(0, color="k", lw=0.5)
+ax.set(xlabel="número de onda $k$", ylabel="tasa de crecimiento $\\sigma$")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+Qué muestra la figura:
+
+- **En $k=0$ las dos curvas coinciden**, con $\sigma<0$: frente a una
+  perturbación uniforme, la difusión no actúa y el estado uniforme es estable.
+- **El control sólo baja:** con difusiones iguales, la difusión amortigua
+  todos los modos y ninguno crece.
+- **El modelo sube por encima de cero** en una banda ancha de $k$, entre
+  $0.10$ y $0.90$. Es la inestabilidad de Turing.
+- **El quiebre cerca de $k=0.1$** no es un error numérico. Para $k$ chico,
+  los dos autovalores de $M(k)$ son complejos conjugados, y la perturbación
+  se apaga oscilando, con $\sigma=\operatorname{tr}M/2$. Cuando pasan a ser
+  reales, uno de los dos sube rápido y cruza el cero.
+- **El máximo** está en $k\approx0.42$, una longitud de onda
+  $\lambda_\text{T}\approx15$ celdas. Es el modo que crece más rápido, y la
+  predicción con la que vamos a comparar el patrón simulado.
+
+## 4. Patrones
+
+Ahora integramos el **modelo completo**, con los mismos parámetros: $D_u=1$,
+$D_v=10$, $a=0.005$ y $b=1$. No es la ecuación linealizada de la sección 3:
+el código incluye el término $u^3$ y todas las reacciones tal como están.
+Tampoco es una solución exacta: no conocemos una para este sistema, y la
+simulación es una aproximación numérica, con los errores de FTCS.
+
+| | Teoría lineal (sección 3) | Simulación (esta sección) |
+|---|---|---|
+| **Ecuación** | linealizada alrededor de $u^*$ | completa, con $u^3$ |
+| **Vale para** | perturbaciones chicas, mientras siga siendo válida la linealización | incluye el régimen no lineal, sujeto a estabilidad y resolución |
+| **Resultado** | $\sigma(k)$ y $\lambda_\text{T}$, con lápiz y papel | el campo $u(x,y,t)$, con error de grilla |
+
+La teoría lineal describe cómo **arranca** el patrón: qué escalas crecen
+desde el ruido. Cuando la amplitud deja de ser chica, el término $u^3$ frena
+el crecimiento y el patrón se satura; esa parte sólo la ve la simulación.
+Comparar las dos es un control parcial: esperamos que coincidan en el orden
+de magnitud, no necesariamente en el valor exacto.
+
+Simulamos en un cuadrado periódico de $100\times100$ con $\Delta x=1$. La
+condición inicial es el estado uniforme más ruido gaussiano de amplitud
+$0.1$, con semilla fija. El paso es $\Delta t=0.02$, con $r=D_v\Delta t/\Delta x^2=0.2\le1/4$.
+Esto satisface la restricción difusiva, no demuestra por sí solo la
+estabilidad ni la precisión del sistema completo. Además, este ruido no es
+infinitesimal frente a $u^*\approx0.17$: el ensayo muestra la formación del
+patrón, no una medición controlada de las tasas de crecimiento lineales.
+
+
+```{python}
+#| label: turing
+
+def paso_turing(u, v, dx, dt, Dv):
+    """Un paso de FTCS en dos dimensiones con la reacción del modelo."""
+    nuevo_u = u + dt * (Du * laplaciano_2d(u) / dx**2 + u - u**3 - v + a)
+    nuevo_v = v + dt * (Dv * laplaciano_2d(v) / dx**2 + b * (u - v))
+    return nuevo_u, nuevo_v
+
+
+def simular_turing(largo, dx, dt, T, rng, Dv=10.0, amplitud=0.1, fotos_cada=None):
+    """Integra el modelo desde el uniforme más ruido. Devuelve u final y, si se pide, fotos."""
+    n = int(round(largo / dx))
+    u0 = np.cbrt(a)
+    u = u0 + amplitud * rng.standard_normal((n, n))
+    v = u0 + amplitud * rng.standard_normal((n, n))
+    pasos = int(round(T / dt))
+    fotos, tiempos_fotos = [], []
+    for k in range(pasos + 1):
+        if fotos_cada and k % int(round(fotos_cada / dt)) == 0:
+            fotos.append(u.copy())
+            tiempos_fotos.append(k * dt)
+        if k < pasos:
+            u, v = paso_turing(u, v, dx, dt, Dv)
+    return u, np.array(fotos), np.array(tiempos_fotos)
+
+
+def espectro_radial(u, dx):
+    """Potencia de Fourier de la imagen y módulo del número de onda de cada coeficiente."""
+    n = u.shape[0]
+    potencia = np.abs(np.fft.fft2(u - u.mean())) ** 2
+    k = 2 * np.pi * np.fft.fftfreq(n, dx)
+    modulo = np.hypot(*np.meshgrid(k, k, indexing="ij"))
+    return potencia, modulo, k
+
+
+def longitud_de_onda(u, dx):
+    """Longitud característica espectral: 2π sobre el promedio de |k| por potencia."""
+    potencia, modulo, _ = espectro_radial(u, dx)
+    return 2 * np.pi / ((modulo * potencia).sum() / potencia.sum())
+
+
+u_final, fotos, tiempos_fotos = simular_turing(100, 1.0, 0.02, 100, np.random.default_rng(0), fotos_cada=2.0)
+print(f"u entre {u_final.min():.2f} y {u_final.max():.2f}")
+print(f"longitud característica espectral: {longitud_de_onda(u_final, 1.0):.2f}   escala lineal: {longitud_lineal:.2f}")
+```
+
+```{python}
+#| label: anim-turing
+#| code-fold: true
+#| code-summary: "Código de la animación"
+
+fig, ax = plt.subplots(figsize=(4.2, 4.2))
+imagen = ax.imshow(fotos[0], cmap="RdBu_r", vmin=-0.8, vmax=0.8, interpolation="nearest")
+reloj = ax.text(0.02, 1.02, "", transform=ax.transAxes)
+ax.set(xticks=[], yticks=[])
+
+
+def cuadro(i):
+    imagen.set_data(fotos[i])
+    reloj.set_text(f"t = {tiempos_fotos[i]:.0f}")
+    return imagen, reloj
+
+
+animar(fig, cuadro, cuadros=len(fotos))
+```
+
+```{python}
+#| label: fig-turing
+#| fig-cap: "Campo u en cuatro instantes, desde el ruido inicial hasta el patrón saturado."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ejes = plt.subplots(1, 4, figsize=(9, 2.6))
+for ax, t in zip(ejes, (0, 10, 20, 100)):
+    ax.imshow(fotos[np.argmin(np.abs(tiempos_fotos - t))], cmap="RdBu_r", vmin=-0.8, vmax=0.8)
+    ax.set(title=f"$t={t}$", xticks=[], yticks=[])
+fig.tight_layout()
+plt.show()
+```
+
+El patrón es un **laberinto** de rayas y manchas. Su espectro concentra
+potencia en un anillo: hay una escala característica. La forma de anillo no
+garantiza isotropía; también importa cómo se reparte la potencia entre sus
+direcciones. La longitud característica espectral medida es cerca de $13.4$,
+unos $10\,\%$ menos que la $\lambda_\text{T}\approx15$ de la teoría lineal,
+pero son dos medidas diferentes, como veremos enseguida.
+
+**¿Cómo se mide la longitud de onda de un laberinto?** El patrón no es una
+onda en una dirección, así que no alcanza con contar rayas a lo largo de un
+eje. Usamos el **espectro de Fourier** de la imagen:
+
+1. **Descomponer en ondas planas.** En una caja periódica de lado $L$,
+   cualquier imagen es una suma de ondas planas
+   $e^{i\mathbf k\cdot\mathbf x}$, con $\mathbf k=\frac{2\pi}{L}(m,n)$ para
+   enteros $m$ y $n$. `np.fft.fft2` devuelve el coeficiente de cada una.
+2. **Potencia.** El módulo al cuadrado de cada coeficiente, la
+   **potencia**, dice cuánto de la imagen está en esa onda. Antes restamos el
+   promedio de $u$, para que la onda $\mathbf k=0$, que no tiene escala, no
+   domine.
+3. **Un anillo.** En un laberinto, la potencia se concentra en las ondas con
+   un mismo módulo $|\mathbf k|$, pero en todas las direcciones: un **anillo**
+   en el plano $(k_x,k_y)$. El radio del anillo da la escala del patrón; que
+   ocupe todas las direcciones no basta para descartar una orientación
+   preferida: la potencia podría ser mayor en algunas de ellas.
+4. **Espectro radial.** Sumando la potencia de todas las ondas con el mismo
+   $|\mathbf k|$, en anillos de ancho $2\pi/L$, queda una curva de potencia
+   en función de $k$, con un pico en el $k$ del patrón.
+5. **Un número.** Para resumir el espectro en una longitud de onda, tomamos
+   el promedio de $|\mathbf k|$ pesado por la potencia, $\bar k$, y
+   $\lambda=2\pi/\bar k$. Es lo que hace `longitud_de_onda`.
+
+En lo que sigue, **$\lambda$ medida** significa esta longitud característica
+espectral, no la longitud de onda del pico. La teoría, en cambio, predice
+$\lambda_\text{T}=2\pi/k_\text{máx}$ a partir del modo de mayor crecimiento
+de una perturbación pequeña. Los armónicos de un patrón saturado aumentan
+$\bar k$ y pueden reducir la medida aunque no cambie la separación entre
+rayas. Por eso una diferencia entre ambas longitudes no mide directamente
+un error ni un desplazamiento del modo dominante.
+
+
+
+```{python}
+#| label: fig-espectro
+#| fig-cap: "Espectro del patrón final. Izquierda: potencia de cada onda plana en el plano (k_x, k_y); se concentra en un anillo. El círculo de puntos tiene el radio de la teoría lineal. Derecha: espectro radial, la potencia sumada en anillos de igual |k|."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+potencia, modulo, k_ejes = espectro_radial(u_final, 1.0)
+k_teoria = 2 * np.pi / longitud_lineal
+k_medido = 2 * np.pi / longitud_de_onda(u_final, 1.0)
+fig, (ax_2d, ax_r) = plt.subplots(1, 2, figsize=(9, 3.8), gridspec_kw={"width_ratios": [1, 1.3]})
+
+k_ord = np.fft.fftshift(k_ejes)
+ax_2d.pcolormesh(k_ord, k_ord, np.fft.fftshift(potencia).T, cmap="Greys", shading="nearest")
+angulo = np.linspace(0, 2 * np.pi, 200)
+ax_2d.plot(k_teoria * np.cos(angulo), k_teoria * np.sin(angulo), "k:", lw=1)
+ax_2d.set(xlabel="$k_x$", ylabel="$k_y$", xlim=(-1, 1), ylim=(-1, 1), aspect="equal")
+
+bins = np.arange(0, 1.2, 2 * np.pi / 100)
+indice = np.digitize(modulo.ravel(), bins)
+perfil = [potencia.ravel()[indice == i].sum() for i in range(1, len(bins))]
+ax_r.plot(0.5 * (bins[1:] + bins[:-1]), perfil, "o-", ms=3)
+ax_r.axvline(k_teoria, color="k", ls=":", lw=1, label=f"teoría lineal, $\\lambda_\\mathrm{{T}}={longitud_lineal:.1f}$")
+ax_r.axvline(k_medido, color="C1", ls="--", lw=1, label=f"$\\bar k$ medido, $\\lambda={2 * np.pi / k_medido:.1f}$")
+ax_r.set(xlabel="$|\\mathbf{k}|$", ylabel="potencia", yticks=[])
+ax_r.legend(fontsize=8)
+ax_r.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+
+La teoría lineal sí incluye la contribución $-3(u^*)^2\delta u$ del término
+cúbico al jacobiano; descarta los términos cuadráticos y cúbicos en la
+perturbación. La saturación no lineal puede modificar el espectro, pero
+esta comparación no separa ese efecto del uso de medidas distintas, la
+caja y la discretización. No atribuimos el desvío del $10\,\%$ a una causa
+única. Comparamos primero la **tendencia** al variar $D_v$ y repetimos con
+distintas semillas. Para contrastar directamente la predicción lineal
+habría que medir el crecimiento de modos de pequeña amplitud antes de la
+saturación.
+
+**Antes de correr:** si se aumenta $D_v$, ¿la longitud de onda del patrón
+sube o baja? ¿Cambia si se cambia la semilla del ruido o su amplitud?
+
+```{python}
+#| label: dependencia
+
+print(" Dv   teoría lineal   medida (dos semillas)")
+for Dv in (6.0, 10.0, 14.0, 20.0):
+    dt = min(0.02, 0.2 / Dv)  # mantiene r = Dv dt / dx² ≤ 0.2
+    medidas = [longitud_de_onda(simular_turing(100, 1.0, dt, 100, np.random.default_rng(s), Dv=Dv)[0], 1.0)
+               for s in (1, 2)]
+    print(f"{Dv:>4.0f}   {prediccion_lineal(Dv)[0]:>12.2f}   {medidas[0]:.2f}  {medidas[1]:.2f}")
+
+print("\nsemillas del ruido (Dv = 10):")
+semillas = [longitud_de_onda(simular_turing(100, 1.0, 0.02, 100, np.random.default_rng(s))[0], 1.0) for s in range(6)]
+print("  amplitud 0.1 :", np.round(semillas, 2), f"  media {np.mean(semillas):.2f} ± {np.std(semillas):.2f}")
+chico = [longitud_de_onda(simular_turing(100, 1.0, 0.02, 100, np.random.default_rng(s), amplitud=0.01)[0], 1.0)
+         for s in range(3)]
+print("  amplitud 0.01:", np.round(chico, 2))
+```
+
+En los casos ensayados, la longitud característica sube con $D_v$, como la
+escala lineal, y queda aproximadamente un $10\,\%$ por debajo.
+**La semilla y la amplitud del ruido** cambian la forma del laberinto; su
+escala varía poco en estos ensayos. No es una prueba de independencia frente
+a cualquier condición inicial. En las tablas, $\pm$ indica el desvío
+estándar descriptivo entre semillas (`np.std`, divisor igual al número de
+semillas), no el error de la media ni un intervalo de confianza.
+
+## 5. ¿Física o grilla?
+
+El patrón de la sección 4 tiene una escala y no tiene orientación. Antes de
+atribuirle eso al modelo, revisamos tres cosas del método numérico que
+podrían imitarlo:
+
+| Sospechoso | Qué podría hacer | Cómo se prueba |
+|---|---|---|
+| **Geometría de la grilla** | orientar el patrón según los ejes | calcular cuánto distingue direcciones el laplaciano discreto |
+| **Tamaño de la caja** | imponer la escala y la orientación | repetir con cajas de distinto lado $L$ |
+| **Resolución** | correr la escala | repetir con $\Delta x$ más chico |
+
+### 5.1. Anisotropía de la grilla
+
+El laplaciano de cinco puntos sólo mira las cuatro vecinas, sobre los ejes.
+Una onda que va en diagonal no "ve" la grilla igual que una que va sobre un
+eje. Para cuantificarlo, aplicamos los dos laplacianos a una onda plana
+$e^{i(k_xx+k_yy)}$, con $k_x=k\cos\theta$ y $k_y=k\sin\theta$:
+
+- el laplaciano exacto la multiplica por $-k^2$;
+- el discreto la multiplica por $-\hat k^2$, con
+  $\hat k^2=\frac{4}{\Delta x^2}\left[\sin^2\frac{k_x\Delta x}{2}+\sin^2\frac{k_y\Delta x}{2}\right]$.
+  Es la misma cuenta del análisis de von Neumann de la sección 2.
+
+Si $\hat k^2=k^2$, la grilla no se nota. Desarrollando los senos para
+$k\Delta x$ chico,
+
+$$
+\frac{\hat k^2}{k^2}\approx1-\frac{(k\Delta x)^2}{12}\left(\cos^4\theta+\sin^4\theta\right).
+$$
+
+El paréntesis vale $1$ sobre los ejes y $1/2$ en la diagonal: la difusión
+discreta es un poco más débil sobre los ejes. Como $\sigma(k)$ depende de la
+difusión, un modo podría crecer un poco más rápido en una dirección que en
+otra, y orientar el patrón. Lo evaluamos para la longitud de onda medida del
+patrón.
+
+```{python}
+#| label: anisotropia
+
+k_patron = 2 * np.pi / 13.5  # número de onda del patrón medido, en unidades de 1/Δx
+print("   θ   k̂²/k²")
+for theta in (0, 15, 30, 45):
+    kx, ky = k_patron * np.cos(np.radians(theta)), k_patron * np.sin(np.radians(theta))
+    razon = (4 * np.sin(kx / 2) ** 2 + 4 * np.sin(ky / 2) ** 2) / k_patron**2
+    print(f"{theta:>4}   {razon:.4f}")
+```
+
+Con unas trece celdas por longitud de onda, la diferencia entre el eje y la
+diagonal es de menos de 1 %. Es chica, pero no es cero. Para saber si alcanza
+a orientar el patrón hay que mirar el patrón, y lo hacemos en la sección
+siguiente, junto con el tamaño de la caja.
+
+### 5.2. Tamaño de la caja
+
+En una caja periódica de lado $L$ no existe cualquier onda: tiene que entrar
+un número entero de veces en cada dirección. Los vectores de onda permitidos
+son
+
+$$
+\mathbf k=\frac{2\pi}{L}(m,n),\qquad m,n\ \text{enteros},
+$$
+
+una red de puntos separados $2\pi/L$ en el plano $(k_x,k_y)$. El modelo
+quiere crecer en el anillo $|\mathbf k|\approx k_\text{máx}$, pero sólo puede
+usar los puntos de la red que caen cerca de ese anillo.
+
+- **Caja grande:** la red es fina, y hay puntos cerca del anillo en casi
+  todas las direcciones. El patrón puede elegir su escala y no tiene por qué
+  elegir una orientación.
+- **Caja chica:** la red es gruesa, y cerca del anillo quedan unos pocos
+  puntos, en direcciones fijas por la red. La caja puede imponer tanto la
+  escala como la orientación.
+
+**Cómo medir la orientación.** Una raya paralela al eje $y$ es una onda que
+varía en $x$: su vector de onda está sobre el eje $k_x$. Medimos entonces la
+**fracción alineada**, la fracción de la potencia del espectro con vectores
+de onda a menos de $10^\circ$ de los ejes. Si la potencia se repartiera
+igual en todas las direcciones, esa fracción sería $20/90\approx0.22$: en
+cada cuadrante de $90^\circ$, hay $10^\circ$ junto a cada uno de los dos
+ejes. Si el patrón son rayas alineadas, se acerca a 1. El $0.22$ es una
+referencia aproximada: en una caja finita las direcciones disponibles son
+las de la red, no todas.
+
+**Antes de correr:** se repite la simulación con cajas de lado $L=16$ a $100$.
+¿A partir de qué tamaño esperan que el resultado deje de depender de $L$?
+
+```{python}
+#| label: dominios
+
+def fraccion_alineada(u, dx=1.0, ventana=10):
+    """Fracción de la potencia a menos de `ventana` grados de los ejes."""
+    potencia, modulo, _ = espectro_radial(u, dx)
+    k = 2 * np.pi * np.fft.fftfreq(u.shape[0], dx)
+    angulo = np.degrees(np.arctan2(np.abs(k)[None, :], np.abs(k)[:, None]))
+    mascara = modulo > 0
+    cerca = (angulo < ventana) | (angulo > 90 - ventana)
+    return potencia[mascara & cerca].sum() / potencia[mascara].sum()
+
+
+print("   L   λ medida (4 semillas)   fracción alineada con los ejes")
+for lado in (16, 24, 32, 48, 64, 100):
+    campos = [simular_turing(lado, 1.0, 0.02, 100, np.random.default_rng(s))[0] for s in range(4)]
+    lambdas = [longitud_de_onda(c, 1.0) for c in campos]
+    alineadas = [fraccion_alineada(c) for c in campos]
+    print(f"{lado:>4}   {np.mean(lambdas):>6.2f} ± {np.std(lambdas):<6.2f}      {np.mean(alineadas):.2f} ± {np.std(alineadas):.2f}")
+```
+
+La tabla muestra el promedio y el desvío estándar entre las cuatro semillas.
+
+- **$L=16$ y $L=24$:** la longitud de onda cambia mucho de una semilla a
+  otra (desvío de 1.1 a 1.2). Con $L=16$, además, el patrón se alinea con
+  los ejes (fracción $0.84$).
+- **Desde $L=32$,** unas dos longitudes de onda por lado: la medida queda
+  cerca de $13.5$, con desvío de $0.3$ o menos, y la fracción alineada queda
+  entre $0.15$ y $0.24$, cerca de la referencia.
+
+No aparece la alineación fuerte de $L=16$. Eso no demuestra que el patrón
+sea perfectamente isótropo: con cuatro semillas y una referencia
+aproximada, sólo podemos decir que no vemos una orientación preferida.
+También responde a la sección 5.1: la anisotropía del laplaciano, menor al
+1 %, no alcanza para orientar el patrón en una caja grande.
+
+### 5.3. Resolución
+
+Por último, ¿cambia el patrón al refinar la grilla con la misma caja física?
+Mantenemos $L=64$ y pasamos de $\Delta x=1$ a $\Delta x=1/2$, con $r$ fijo
+($\Delta t\propto\Delta x^2$) y la misma duración.
+
+Una advertencia: con $\Delta x=1/2$ hay cuatro veces más celdas, y el ruido
+inicial se sortea de nuevo en cada una. Aunque usemos la misma semilla, la
+condición inicial **no es la misma** en las dos grillas. Por eso no
+comparamos los campos uno a uno, sino la longitud de onda de varias
+corridas en cada resolución.
+
+```{python}
+#| label: resolucion
+
+print("   Δx    Δt       λ medida en 3 semillas")
+for dx, dt in ((1.0, 0.02), (0.5, 0.005)):
+    medidas = [longitud_de_onda(simular_turing(64, dx, dt, 60, np.random.default_rng(s))[0], dx) for s in range(3)]
+    print(f"{dx:>5}  {dt:<7}  {np.round(medidas, 2)}")
+```
+
+Las dos resoluciones dan longitudes de onda indistinguibles, dentro de la
+dispersión entre semillas. Es un control débil, no un estudio de
+convergencia:
+
+- sólo hay dos resoluciones y tres semillas;
+- la condición inicial no es la misma en las dos grillas;
+- refinamos espacio y tiempo juntos, así que no separamos los dos errores.
+
+Lo que sí podemos decir es que, si hay error de discretización en $\lambda$,
+es más chico que la dispersión entre semillas. Un estudio completo usaría
+el mismo campo inicial suave en cada grilla, más resoluciones, y $\Delta t$
+variado por separado.
+
+## 6. Discusión en grupos: un resultado plausible
+
+Un informe presenta el siguiente resultado:
+
+> Integramos el modelo de activador e inhibidor con $D_v=10$ en una caja
+> periódica de $16\times16$ celdas con $\Delta x=1$ y $\Delta t=0.02$, a
+> partir del estado uniforme con ruido, hasta $t=100$. **Se forman rayas
+> perfectamente paralelas a un eje, con una longitud de onda de 15.4. La
+> teoría lineal predice 15.1: coinciden dentro del 3 %. Concluimos que el
+> modelo produce rayas, y que las direcciona la dinámica.** El código es estable
+> ($r=0.2$) y el resultado se reprodujo con otras semillas.
+
+```{python}
+#| label: informe
+#| code-fold: true
+#| code-summary: "Código del informe"
+
+fig, ejes = plt.subplots(1, 3, figsize=(8.5, 2.9))
+for ax, semilla in zip(ejes, (2, 3, 4)):
+    campo = simular_turing(16, 1.0, 0.02, 100, np.random.default_rng(semilla))[0]
+    ax.imshow(campo, cmap="RdBu_r", vmin=-0.8, vmax=0.8)
+    ax.set(title=f"semilla {semilla}", xticks=[], yticks=[])
+    print(f"semilla {semilla}: λ = {longitud_de_onda(campo, 1.0):.2f}, fracción alineada = {fraccion_alineada(campo):.2f}")
+fig.tight_layout()
+plt.show()
+```
+
+1. ¿Qué longitudes de onda permite una caja periódica de $16\times16$?
+   ¿Cuál queda más cerca de la más inestable?
+2. ¿Qué dos experimentos de esta clase ponen a prueba la afirmación "las rayas
+   son una propiedad del modelo"?
+3. Las otras semillas reproducen el resultado. ¿Qué prueba eso y qué no?
+4. Escriban la afirmación que sí se puede hacer.
+
+## 7. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- la velocidad del frente de Fisher–KPP, $2\sqrt{gD}$, es una referencia
+  teórica, cuya comparación requiere tener en cuenta la corrección de tiempo
+  finito;
+- para difusión pura, FTCS en $d$ dimensiones exige $r\le1/(2d)$; con
+  reacción hay que controlar el paso completo. A dominio y tiempo final
+  fijos, con $\Delta t\propto\Delta x^2$, el costo crece como $N^4$ en 2D;
+- si el estado uniforme es estable pero hay una banda de $k$ con
+  $\sigma(k)>0$, hay una inestabilidad de Turing: pequeñas perturbaciones
+  de esos modos crecen. En las simulaciones realizadas se forman patrones
+  cuya longitud característica espectral es cercana a la escala lineal,
+  aunque ambos observables son distintos;
+- en los ensayos realizados la escala no cambia apreciablemente con la semilla
+  ni con la resolución, y sí puede quedar condicionada por la caja cuando ésta
+  tiene pocas longitudes de onda por lado.
+
+No podemos concluir que:
+
+- la forma exacta de un laberinto sea una propiedad del modelo: depende de la
+  semilla;
+- rayas alineadas con los ejes en una caja chica muestren algo del modelo;
+- coincidir con la teoría lineal valide el resultado: en la caja de $16$ la
+  coincidencia es una casualidad de la caja;
+- la teoría lineal garantice un patrón estacionario o dé la longitud de
+  onda del patrón saturado;
+- el desvío del $10\,\%$ se deba sólo a la saturación no lineal, ni que los
+  ensayos realizados descarten todo error de discretización.
+
+### Puente con la clase 10
+
+En la clase 10 usamos el laplaciano discreto para representar la energía
+cinética, $-\hbar^2\nabla^2/(2m)$, dentro del Hamiltoniano. Buscamos los
+autovalores y autofunciones de ese Hamiltoniano. La pregunta se repite: ¿son los
+estados que devuelve el programa estados de la física, o de la grilla y la
+caja?
+
+### Pregunta de salida
+
+> **Frente a un patrón en una simulación, ¿qué tres cosas se varían para
+> saber si es del modelo o del método?**
+
+## Nota histórica: cómo se rayan los animales
+
+- En 1952, **Alan Turing** publicó "The chemical basis of morphogenesis", sobre
+  cómo una mezcla de sustancias que reaccionan y difunden puede formar
+  patrones a partir de un estado uniforme. Murió en 1954.
+- La idea contradecía la intuición de que la difusión sólo borra
+  diferencias. La clave es que el inhibidor difunda más rápido que el
+  activador.
+- En la década de 1970, **Gierer y Meinhardt** formularon modelos de activador
+  e inhibidor para la morfogénesis; **Murray** los aplicó a las manchas y rayas
+  del pelaje de los mamíferos.
+- Muchos sistemas biológicos son más complicados, y probar que un patrón
+  concreto es de Turing sigue siendo difícil. La conexión con experimentos
+  químicos requiere evidencia específica del sistema estudiado.
+
+## Referencias
+
+- R. A. Fisher, "The wave of advance of advantageous genes", *Annals of
+  Eugenics* **7**, 355–369 (1937).
+- A. N. Kolmogorov, I. G. Petrovsky y N. S. Piskunov, "Étude de l'équation de
+  la diffusion avec croissance de la quantité de matière et son application à un
+  problème biologique", *Bulletin de l'Université d'État de Moscou, Série
+  Internationale A* **1**(6), 1–25 (1937).
+- M. Bramson, "Convergence of solutions of the Kolmogorov equation to
+  travelling waves", *Memoirs of the American Mathematical Society* **44**,
+  n.º 285 (1983).
+- A. M. Turing, "The chemical basis of morphogenesis", *Philosophical
+  Transactions of the Royal Society of London B* **237**, 37–72 (1952).
+- A. Gierer y H. Meinhardt, "A theory of biological pattern formation",
+  *Kybernetik* **12**, 30–39 (1972).
+- J. D. Murray, *Mathematical Biology II: Spatial Models and Biomedical
+  Applications*, Springer (3.ª ed., 2003). Capítulos 1 y 2.
+- M. C. Cross y P. C. Hohenberg, "Pattern formation outside of equilibrium",
+  *Reviews of Modern Physics* **65**, 851–1112 (1993).
+
+**Material de consulta** del archivo de la materia, en `material/notebooks/`:
+`04.1_EDP_Reacción difusión`, que usa el mismo modelo de activador e
+inhibidor y el análisis lineal.
