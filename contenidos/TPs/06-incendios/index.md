@@ -22,7 +22,7 @@ La cátedra les enviará el enlace a su repositorio privado de grupo. Acepten la
 
 ## El modelo
 
-El terreno es una grilla de celdas cuadradas de lado `dx`. Cada celda tiene una **tasa** de propagación, en m/min, que depende de su combustible; una celda sin combustible (roca, agua, una calle) tiene tasa cero. Cada celda está sin quemar, ardiendo o apagada.
+El terreno es una grilla de celdas cuadradas de lado `dx`. Cada celda tiene una **tasa**, en m/min, que depende de su combustible; una celda sin combustible (roca, agua, una calle) tiene tasa cero. La tasa es un parámetro del autómata, no la velocidad del frente. Cada celda está **sin quemar**, **ardiendo** o **apagada**, en ese orden.
 
 **El autómata** (`src/incendio/automata.py`) avanza en pasos de tiempo `dt`. Una celda ardiendo $i$ le transmite a su vecina $j$, a distancia $d$, una tasa de ignición
 
@@ -31,7 +31,18 @@ $$
 \qquad [1/\text{min}],
 $$
 
-y las tasas que recibe una celda de todas sus vecinas ardiendo se suman. Las vecinas son las cuatro de los lados (vecindad de **von Neumann**) o las ocho de lados y esquinas (vecindad de **Moore**). Todas las celdas se actualizan a la vez. Una celda arde durante su **tiempo de quemado** (`tiempo_quemado`, en minutos) y después se apaga.
+donde $\text{tasa}_j$ es la de la celda que se enciende, $j$, no la de la que arde. Las igniciones que intenta cada vecina ardiendo se modelan como procesos aleatorios independientes; por eso las tasas de ignición que recibe una celda se suman en una tasa total, $\Lambda_j = \sum_i \lambda_{ij}$. Las vecinas son las cuatro de los lados (vecindad de **von Neumann**) o las ocho de lados y esquinas (vecindad de **Moore**). Todas las celdas se actualizan a la vez. Una celda arde durante su **tiempo de quemado** (`tiempo_quemado`, en minutos) y después se apaga. Es un campo del `Mapa`, con un valor por celda: los mapas de `mapas.py` y `MapaGenerado.mapa` lo reciben como argumento `tiempo_quemado`, y si no se lo dan vale `np.inf`. En los experimentos de las partes 1 y 2, salvo el del punto 2.3, el tiempo de quemado es infinito: una celda encendida no se apaga.
+
+**Vocabulario.** Varias palabras se parecen; en este práctico quieren decir esto:
+
+| Término                     | Qué es                                                                                                                     | En el código         |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| encenderse (ignición)       | el evento: una celda sin quemar pasa a arder                                                                               |                      |
+| tiempo de llegada           | el instante en que una celda se enciende                                                                                   | `t_llegada`          |
+| tiempo de quemado           | cuánto arde una celda desde que se enciende hasta que se apaga                                                             | `tiempo_quemado`     |
+| celda quemada, área quemada | celdas a las que llegó el fuego: ardiendo o ya apagadas                                                                    | `Incendio.alcanzado` |
+| tasa                        | propiedad del combustible de cada celda, en m/min                                                                          | `Mapa.tasa`          |
+| tasa de ignición            | $\lambda_{ij}$, o $\Lambda_j$ sumada sobre las vecinas: probabilidad por unidad de tiempo de que $j$ se encienda, en 1/min | `tasas_por_vecino`   |
 
 **El camino mínimo** (`src/incendio/camino.py`) es otra manera de calcular el tiempo de llegada del fuego, con las mismas tasas y sin azar. Se explica más abajo.
 
@@ -39,7 +50,7 @@ y las tasas que recibe una celda de todas sus vecinas ardiendo se suman. Las vec
 
 `simular`, en `src/incendio/automata.py`, guarda para cada celda si está sin quemar, ardiendo o apagada, y su tiempo de llegada. Los focos arden desde `t = 0`. En cada paso de duración `dt`:
 
-1.  cada celda sin quemar suma las tasas $\lambda_{ij}$ que le transmiten sus vecinas que están ardiendo al empezar el paso;
+1.  cada celda sin quemar suma las tasas de ignición $\lambda_{ij}$ que le transmiten sus vecinas que están ardiendo al empezar el paso, y obtiene $\Lambda_j$;
 2.  con esa tasa total se sortea si la celda se enciende durante el paso, con la probabilidad que da `probabilidad_de_ignicion` (parte 1.3), que supone la tasa constante durante todo el paso;
 3.  todas las celdas se actualizan a la vez: las que se encendieron registran como tiempo de llegada el final del paso, `t = paso · dt`, y pasan a arder;
 4.  las celdas que cumplieron su tiempo de quemado se apagan; el tiempo de quemado se cuenta en pasos enteros, `ceil(tiempo_quemado / dt)`;
@@ -47,11 +58,11 @@ y las tasas que recibe una celda de todas sus vecinas ardiendo se suman. Las vec
 
 De la regla salen tres propiedades, válidas para cualquier `dt`:
 
--   los tiempos de llegada son múltiplos de `dt`;
--   una celda que se enciende durante un paso no contagia a nadie en ese mismo paso, sino recién a partir del siguiente; por eso, en cada paso el fuego avanza a lo sumo una vecina;
--   una celda arde un número entero de pasos, aunque `tiempo_quemado / dt` no sea entero.
+- los tiempos de llegada son múltiplos de `dt`;
+- una celda que se enciende durante un paso no enciende a ninguna vecina en ese mismo paso, sino recién a partir del siguiente; por eso, en cada paso el fuego avanza a lo sumo una vecina;
+- una celda arde un número entero de pasos, aunque `tiempo_quemado / dt` no sea entero.
 
-En tiempo continuo no hay nada de esto: una celda puede encenderse en cualquier instante y empezar a contagiar enseguida. Cuánto cambia el frente por avanzar en pasos finitos, y de qué depende, es la pregunta de la parte 2.
+En tiempo continuo no hay nada de esto: una celda puede encenderse en cualquier instante y empezar a encender a sus vecinas enseguida. Cuánto cambia el frente por avanzar en pasos finitos, y de qué depende, es la pregunta de la parte 2.
 
 ### Caminos mínimos en una grilla
 
@@ -59,7 +70,7 @@ Piensen la grilla como un **grafo**: cada celda es un nodo, unido a cada una de 
 
 $$\tau_{ij} = \frac{1}{\lambda_{ij}},$$
 
-el tiempo medio que tarda $i$ en encender a $j$ (parte 1.3). Como $\lambda_{ij}$ depende de la celda que se enciende, del viento y de la pendiente, ir de $i$ a $j$ no tiene por qué tardar lo mismo que volver. Un **camino** del foco a una celda es una sucesión de aristas, y tarda la suma de sus $\tau$. El tiempo de llegada a la celda es el del camino más rápido:
+el tiempo medio que tarda $i$ en encender a $j$ si no se apaga antes (parte 1.3). El camino mínimo sin azar no usa el tiempo de quemado: supone que ninguna celda se apaga antes de encender a sus vecinas. Como $\lambda_{ij}$ depende de la celda que se enciende, del viento y de la pendiente, ir de $i$ a $j$ no tiene por qué tardar lo mismo que volver. Un **camino** del foco a una celda es una sucesión de aristas, y tarda la suma de sus $\tau$. El tiempo de llegada a la celda es el del camino más rápido:
 
 $$t_j = \min_{\text{caminos del foco a } j} \; \sum_{\text{aristas del camino}} \tau .$$
 
@@ -89,7 +100,7 @@ El repositorio trae:
 - `auditoria/`: los informes de la parte 4;
 - `src/incendio/pavesas.py`: las pavesas de la parte 5, optativa.
 
-Los parámetros de las corridas están en `experiments/parametros.py`. En las partes 1 y 2, `DX = 10 m` y `TASA = 10 m/min`.
+Los parámetros de las corridas están en `experiments/parametros.py`. En las partes 1 y 2, `DX = 10 m`, `TASA = 10 m/min` y, salvo donde se barre el paso de tiempo, `dt = DT = 0.1 min`.
 
 ## Cómo trabajar
 
@@ -105,18 +116,18 @@ Como el frente de Fisher de la clase 09, antes de creerle al autómata hay que p
 
 1.  **Medir la velocidad del frente.** Completen `velocidad_del_frente` en `src/incendio/frente.py`: para cada rumbo, una recta de distancia al foco contra tiempo de llegada. Los tests de `tests/test_frente.py` la prueban con mapas de tiempos construidos a mano.
 2.  **El camino mínimo.** **Antes de correr:** en un mapa uniforme, ¿qué forma tienen las curvas de igual tiempo de llegada del camino mínimo con cada vecindad? ¿Cuánto vale la velocidad del frente en los rumbos 0°, 22.5° y 45°, en unidades de `TASA`? Después completen `test_velocidad_del_camino_minimo_en_un_mapa_uniforme` en `tests/test_camino.py`. En `lab.md`: ¿qué forma esperarían para un incendio real en un pastizal plano y uniforme, sin viento?
-3.  **El paso del autómata.** Completen `probabilidad_de_ignicion` en `src/incendio/automata.py`: la probabilidad de que una celda que recibe una tasa total $\lambda$, constante, se encienda durante un paso `dt`. `test_tiempo_medio_de_ignicion_de_una_vecina` lo controla. En `lab.md`: ¿qué se supone sobre las vecinas al sumar sus tasas?
+3.  **El paso del autómata.** Completen `probabilidad_de_ignicion` en `src/incendio/automata.py`: la probabilidad de que una celda que recibe una tasa de ignición total $\Lambda$, constante, se encienda durante un paso `dt`. `test_ignicion_de_una_vecina` lo controla. En `lab.md`: ¿qué se supone sobre las vecinas al sumar sus tasas de ignición?
 4.  **El autómata en el mapa uniforme.** **Antes de correr:** con la misma tasa, ¿el frente del autómata va más rápido, más lento o igual que el del camino mínimo? ¿Qué forma tiene? Corran `uv run python experiments/frente_plano.py` y miren `results/frente-plano.png`. En `lab.md`: ¿qué vieron? ¿Cómo lo explican?
 
 ## Parte 2 — ¿Fuego o grilla?
 
-En la clase 09, la pregunta era si un patrón es del modelo o de la grilla. Acá, el modelo tiene una sola escala física por combustible, la tasa. Todo lo demás —`dx`, `dt`, la vecindad, el tiempo de quemado— es una elección. La pregunta es cuánto cambian el frente esas elecciones.
+En la clase 09, la pregunta era si un patrón es del modelo o de la grilla. Acá, la tasa y el tiempo de quemado son supuestos físicos del combustible; `dx`, `dt` y la vecindad son elecciones numéricas. El tiempo de quemado se vuelve además discreto al contarlo en pasos. La pregunta es cuánto cambian el frente esos supuestos y elecciones.
 
 1.  **El paso de tiempo.** **Antes de correr:** ¿qué esperan que pase con la velocidad del frente al achicar `dt`? Lean la documentación de `grafo` y `tiempo_minimo` en `camino.py`: con `semilla`, cada arista tarda un tiempo al azar con distribución exponencial. En `question.md`, argumenten si esa versión debería coincidir con el autómata cuando `dt → 0`, y por qué. Corran `uv run python experiments/convergencia_dt.py`. En `lab.md`: ¿el autómata converge al achicar `dt`? ¿A qué? ¿Qué combinación adimensional de `TASA`, `dt` y `DX` controla la diferencia? Como pista: en las clases 08 y 09, el esquema de difusión dependía de $\Delta t$ y $\Delta x$ sólo a través de $r = D\,\Delta t/\Delta x^2$; busquen el análogo acá y pónganlo a prueba en el punto 2. ¿El `dt` de la parte 1 era adecuado?
 2.  **Dos combustibles con el mismo `dt`.** El mapa de `experiments/dos_combustibles.py` tiene un combustible diez veces más lento en la mitad Oeste. **Antes de correr:** ¿el cociente entre las velocidades del frente al Este y al Oeste es el cociente entre las tasas? ¿Depende de `dt`? Córranlo y expliquen el resultado en `lab.md` con lo que encontraron en el punto 1.
-3.  **Cuánto arde una celda.** Con tiempo de quemado finito, una celda puede apagarse antes de encender a una vecina. **Antes de correr:** con la vecindad de von Neumann y en el límite `dt → 0`, ¿cuál es el tiempo de quemado mínimo para que el fuego pueda atravesar un mapa muy grande? Dato: en una red cuadrada donde cada enlace está abierto con probabilidad $p$, independientemente de los demás, aparece un camino abierto que la atraviesa si $p > 1/2$; es el umbral de **percolación de enlaces**. Piensen qué probabilidad tiene cada arista de transmitir antes de que su celda se apague. Corran `uv run python experiments/tiempo_quemado.py`. En `lab.md`: ¿coincide con su predicción? ¿Por qué la transición no es abrupta en un mapa de 81 × 81? ¿Qué cambia con la vecindad de Moore? ¿Qué tiempo de quemado tendría sentido físico para una celda de 30 m de pastizal?
+3.  **Cuánto arde una celda.** Con tiempo de quemado finito, una celda puede apagarse antes de encender a una vecina. **Antes de correr:** con la vecindad de von Neumann y en el límite `dt → 0`, ¿cuál es el tiempo de quemado mínimo para que el fuego pueda atravesar un mapa muy grande? Dato: en una red cuadrada donde cada enlace está abierto con probabilidad $p$, independientemente de los demás, aparece un camino abierto que la atraviesa si $p > 1/2$; es el umbral de **percolación de enlaces**. Piensen qué probabilidad tiene cada celda que arde de encender a una vecina dada antes de apagarse. Corran `uv run python experiments/tiempo_quemado.py`. En `lab.md`: ¿coincide con su predicción? ¿Por qué la transición no es abrupta en un mapa de 81 × 81? ¿Qué cambia con la vecindad de Moore? ¿Qué tiempo de quemado tendría sentido físico para una celda de 30 m de pastizal?
 4.  **Viento, pendiente y barreras.** Corran `uv run python experiments/viento_pendiente.py`. En `lab.md`: ¿qué forma toma el frente con viento y en una ladera? Con los factores de `automata.py`, ¿cuánto más rápido sube el fuego que lo que baja? Comparen con alguna regla empírica de la propagación en pendiente que encuentren y citen. ¿Por qué una barrera diagonal de una celda no detiene el fuego con la vecindad de Moore? ¿Lo detendría con la de von Neumann?
-5.  **Calibración.** En la parte 3, cada combustible va a tener una velocidad de referencia tomada de una tabla, en m/min. Escriban `experiments/calibracion.py`, que genere `results/calibracion.csv`: para la vecindad y el `dt` que elijan, qué tasa hay que poner en el mapa para que el frente del autómata avance a una velocidad de referencia dada, con su barra de error. Usen al menos dos velocidades de referencia, una 25 veces mayor que la otra.
+5.  **Calibración.** En la parte 3, cada combustible va a tener una velocidad de referencia tomada de una tabla, en m/min. Escriban `experiments/calibracion.py`, que genere `results/calibracion.csv`: para un `dx`, una vecindad y un `dt` declarados, qué tasa hay que poner en el mapa para que el frente del autómata avance a una velocidad de referencia dada, con su barra de error. Usen al menos dos velocidades de referencia, una 25 veces mayor que la otra. Una fila de `calibracion.csv` debe incluir, como mínimo, `dx_m`, `dt_min`, `vecindad`, `v_referencia_m_min`, `tasa_m_min`, `v_medida_m_min`, `error_v_m_min` y el número de semillas. La calibración es una tabla de puntos: expliquen cómo interpolan entre ellos y no la usen fuera del rango que midieron sin avisarlo.
 6.  **Afirmación parcial.** En `lab.md`: qué propiedades del frente son del modelo y cuáles de la grilla, con qué evidencia y dentro de qué rango de `dt` y tiempo de quemado.
 
 ## Parte 3 — ¿Desde dónde es peligroso?
@@ -134,18 +145,19 @@ El **escenario** de esta parte, con los valores de `experiments/parametros.py`:
 - la tasa de cada celda es la que da su velocidad de referencia según la calibración de ustedes;
 - una celda arde `TIEMPO_QUEMADO_EN_CRUCES · dx / v` minutos, con `v` su velocidad de referencia: lo que tarda el frente en cruzar tres celdas;
 - el viento es el del mapa, y cada corrida se corta a las `HORIZONTE` = 12 h;
+- como corrida base usen `DT_MAPA` y la vecindad con que calibraron; si cambian uno de los dos, vuelvan a calibrar;
 - el fuego **llega al pueblo** cuando enciende alguna celda de su zona.
 
-1.  **El mapa.** Corran `uv run python experiments/mapa_generado.py` y miren `results/mapa-generado.png`. Elijan al menos tres focos además de los sugeridos, cada uno con un motivo: a favor o en contra del viento, cuesta arriba o cuesta abajo del pueblo, del otro lado de un río o de una calle, en un combustible rápido o lento. **Antes de correr:** ordenen todos los focos de más a menos peligrosos para el pueblo y estimen, para cada uno, cuánto tarda el fuego en llegar.
+1.  **El mapa.** Corran `uv run python experiments/mapa_generado.py` y miren `results/mapa-generado.png`. Elijan al menos tres focos además de los sugeridos, cada uno con un motivo: a favor o en contra del viento, cuesta arriba o cuesta abajo del pueblo, del otro lado de un río o de una calle, en un combustible rápido o lento. Trabajen entonces con los tres focos sugeridos y los tres o más que eligieron. **Antes de correr:** ordenen todos esos focos de más a menos peligrosos para el pueblo y estimen, para cada uno, cuánto tarda el fuego en llegar.
 
-2.  **La calibración en otro mapa.** Las celdas son de 30 m, no de 10. ¿Sigue valiendo la calibración del punto 2.5? ¿Qué rango de velocidades de referencia hay en este mapa, y lo cubre su calibración? Si hace falta, extiéndanla.
+2.  **La calibración en otro mapa.** Las celdas son de 30 m, no de 10. ¿Sigue valiendo la calibración del punto 2.5 con `dt = DT_MAPA` y la vecindad base? Argumenten por qué sí o por qué no, y contrólenlo antes de los ensambles. ¿Qué rango de velocidades de referencia hay en este mapa, y lo cubre su calibración? Si hace falta, extiéndanla. Dejen registrado qué regla usan para convertir cada velocidad de referencia en tasa.
 
-3.  **Ensambles por foco.** Escriban `experiments/focos.py`, que genere `results/focos.csv`. Para cada foco, un ensamble de corridas independientes debe dar:
+3.  **Ensambles por foco.** Escriban `experiments/focos.py`, que genere `results/focos.csv`. Usen una fila por corrida, con al menos el identificador y coordenadas del foco, la semilla, si llegó al pueblo, el tiempo de llegada (vacío si no llegó) y el área quemada a las 12 h. Eso permite reconstruir la distribución y revisar los cálculos. Para cada foco, el ensamble debe dar:
     - la probabilidad de llegar al pueblo antes del horizonte, con su barra de error;
-    - la distribución del tiempo de llegada, no sólo su promedio;
-    - el área quemada.
+    - la distribución del tiempo de llegada **condicionada a que llegue**, junto con la probabilidad de no llegada;
+    - la distribución o un resumen explícito del área quemada a las 12 h.
 
-    Decidan cuántas corridas hacen falta y justifíquenlo. En `lab.md`: ¿qué focos son peligrosos? ¿Coincide con su predicción? Si tuvieran que avisarle al pueblo cuánto tiempo tiene desde que se detecta cada foco, ¿qué número le darían, y por qué ese y no el promedio?
+    Antes de correr, definan en `question.md` qué probabilidad usarán para llamar **peligroso** a un foco y qué precisión quieren para estimarla; eso determina cuántas corridas hacen falta. En `lab.md`: ¿qué focos son peligrosos? ¿Coincide con su predicción? Si tuvieran que avisarle al pueblo cuánto tiempo tiene desde que se detecta cada foco, ¿qué número le darían, y por qué ese y no el promedio?
 
 4.  **Sin azar.** Calculen el tiempo de llegada al pueblo desde los mismos focos con el camino mínimo determinista, con la velocidad de referencia como tasa. En `lab.md`: ¿ordena los focos igual que los ensambles? ¿Para qué preguntas serviría como atajo y para cuáles no?
 
@@ -169,8 +181,8 @@ Hasta acá, el fuego sólo pasa de una celda a sus vecinas, y una franja sin com
 
 La **franja** es el mapa uniforme de las partes 1 y 2, de `N_FRANJA` celdas por lado, con tiempo de quemado `TIEMPO_QUEMADO_FRANJA`, viento del Oeste de `VIENTO_FRANJA` m/s y una barrera sin combustible (`con_barrera`) que empieza en la columna del medio. El fuego empieza en toda la columna del borde Oeste, así que llega a la barrera como un frente recto. Usen la vecindad de Moore y `dt = DT`.
 
-1.  **Cuántas pavesas tira una celda.** ¿Cuántas pavesas emite en total una celda que arde durante un tiempo $\tau$ con emisión $e$?
-2.  **Estimar antes de correr.** Supongan que todas las celdas al Oeste de la barrera arden, que cada pavesa vuela derecho viento abajo y que los encendidos del otro lado son independientes. Escriban el número medio $\bar N$ de pavesas que encienden algo del otro lado de una barrera de ancho $W$, y la probabilidad de que el fuego la cruce. En `question.md`, calculen esa probabilidad para cada ancho de `ANCHOS_FRANJA` y cada emisión de `EMISIONES_FRANJA`.
+1.  **Cuántas pavesas tira una celda.** ¿Cuántas pavesas emite en total una celda con emisión $e$ y tiempo de quemado $t_q$?
+2.  **Estimar antes de correr.** Supongan que todas las celdas al Oeste de la barrera arden, que cada pavesa vuela derecho viento abajo y que los encendidos del otro lado son independientes. En esta cuenta, $W = \texttt{ancho} \cdot dx$ es el ancho de la barrera en metros; Escriban el número medio $\bar N$ de pavesas que encienden algo del otro lado y la probabilidad de que el fuego cruce. En `question.md`, calculen esa probabilidad para cada ancho de `ANCHOS_FRANJA` y cada emisión de `EMISIONES_FRANJA`.
 3.  **Barrido en la franja.** Escriban `experiments/pavesas.py`, que genere `results/pavesas.csv`: para cada ancho y cada emisión, la probabilidad de que el fuego aparezca del otro lado de la barrera antes de `T_FRANJA`, con `N_SEMILLAS_FRANJA` corridas y su barra de error. Midan también cuánto tarda una corrida. En `lab.md`: ¿la estimación acierta? ¿Dónde se equivoca, en qué sentido, y qué de lo que supusieron no es cierto en el autómata?
 4.  **Si les da el tiempo: pavesas en el mapa generado.** En el escenario de la parte 3, tomen la emisión proporcional a la **intensidad** del frente, carga de combustible por velocidad: `emisión = c · carga · v / dx`, con `carga` en kg/m² (`MapaGenerado.carga`) y `c` un coeficiente sin calibrar.
     - Con el tiempo de quemado de la parte 3, ¿cuántas pavesas tira en total una celda de cada clase de vegetación? ¿Depende de su velocidad?
@@ -180,7 +192,7 @@ La **franja** es el mapa uniforme de las partes 1 y 2, de `N_FRANJA` celdas por 
 
 ## Versionar y entregar
 
-Un commit por cada cambio que deja los tests en verde, con un mensaje que diga **por qué**. La forma de entrega está a definir.
+Un commit por cada cambio que deje **el test correspondiente** en verde, con un mensaje que diga **por qué**. Al completar los huecos obligatorios, toda la suite debe quedar en verde. La forma de entrega está a definir.
 
 ## Qué deberían poder explicar al terminar
 
