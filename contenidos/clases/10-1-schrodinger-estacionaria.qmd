@@ -1,0 +1,803 @@
+---
+title: "Schrödinger independiente del tiempo"
+subtitle: "Física Computacional 2026"
+fecha: a definir
+# Esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/10-1-schrodinger-estacionaria.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/10-1-schrodinger-estacionaria.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** ¿Cómo sabemos si los autovalores y las
+> autofunciones que devuelve un Hamiltoniano discretizado son estados
+> físicos?
+
+Hasta ahora integramos trayectorias y campos que evolucionan en el tiempo. Hoy
+la pregunta es otra: **¿qué energías puede tener un sistema cuántico?** La
+respuesta es un problema de **autovalores**. Y la matriz de la que salen es,
+casi, la del laplaciano de la clase 08.
+
+Una computadora devuelve siempre autovalores y autovectores: cualquier matriz
+simétrica produce una lista ordenada de números. Que esos números sean los
+**niveles de energía de una partícula** depende de decisiones nuestras: el
+tamaño de la caja, el paso de la grilla y el factor de la energía cinética.
+Hoy aprendemos a separar lo que pone la física de lo que ponen esas decisiones.
+
+```{python}
+#| label: imports
+#| include: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import eigh_tridiagonal
+```
+
+## 1. De la ecuación a una matriz
+
+La ecuación de Schrödinger independiente del tiempo para una partícula de masa
+$m$ en una dimensión es
+
+$$
+\hat H\psi(x)=E\,\psi(x),\qquad
+\hat H=-\frac{\hbar^2}{2m}\frac{d^2}{dx^2}+V(x).
+$$
+
+**Unidades.** Trabajamos con $\hbar=m=1$. Entonces la energía se mide en
+$\hbar^2/(m\ell^2)$, con $\ell$ la unidad de longitud que elijamos. Todas las
+cuentas de hoy son adimensionales, y recuperar unidades físicas es
+multiplicar por esa escala.
+
+**Discretización.** Pedimos que $\psi$ se anule fuera de $[x_\text{min},x_\text{max}]$.
+Ponemos $N$ puntos interiores $x_j=x_\text{min}+j\,\Delta x$, con $j=1,\dots,N$,
+y $\psi_0=\psi_{N+1}=0$. La diferencia centrada de la clase 08 da
+
+$$
+-\frac{1}{2}\,\frac{\psi_{j+1}-2\psi_j+\psi_{j-1}}{\Delta x^2}+V_j\psi_j=E\,\psi_j.
+$$
+
+Es un sistema lineal homogéneo. Definimos $t=1/(2\Delta x^2)$, que en física
+del estado sólido se llama **salto** (*hopping*): cuánta amplitud pasa a un
+vecino. Queda $H\boldsymbol\psi=E\boldsymbol\psi$ con la matriz
+
+$$
+H=\begin{pmatrix}
+2t+V_1&-t&&\\
+-t&2t+V_2&-t&\\
+&\ddots&\ddots&\ddots\\
+&&-t&2t+V_N
+\end{pmatrix}.
+$$
+
+- La parte cinética es **menos el laplaciano de la clase 08**, multiplicado
+  por $1/2$.
+- La parte potencial es la **diagonal** $V_j$.
+- $H$ es **real, simétrica y tridiagonal**.
+
+**Qué algoritmo usamos.** No implementamos el cálculo de autovalores: lo hace
+`scipy.linalg.eigh_tridiagonal`, que aprovecha que $H$ es tridiagonal.
+Nuestra tarea es **construir la matriz correcta y auditar el resultado**.
+
+**Cuántos estados salen.** $H$ es de $N\times N$, así que el programa devuelve
+**exactamente $N$ autovalores y $N$ autofunciones**, sin importar el potencial.
+
+- El problema continuo tiene **infinitos** niveles; la grilla los reemplaza por $N$.
+- Cada autofunción tiene $N$ componentes: no puede oscilar más rápido que un
+  signo distinto por punto.
+- El estado de menor energía no tiene nodos y cada estado siguiente tiene uno
+  más. El último tiene $N-1$ y alterna de signo en cada punto: **no representa
+  ninguna función suave**.
+- Su energía, $E_N\approx2/\Delta x^2$, **crece al refinar la grilla** en lugar
+  de converger.
+
+Duplicar $N$ no mejora los últimos niveles: **agrega niveles nuevos, más
+altos**, y los bajos se corrigen. Por eso pedimos sólo los `cuantos` más bajos,
+y por eso la sección 2.1 mide cuántos son confiables.
+
+**Si necesitamos $k\ll N$ estados, no hace falta diagonalizar todo.** Para una
+matriz tridiagonal hay métodos que calculan sólo los más bajos:
+
+- **Bisección** para los autovalores: cada uno cuesta del orden de $N$
+  operaciones.
+- **Iteración inversa** para sus autovectores.
+- Se evita guardar la matriz de autovectores completa, de $N\times N$.
+
+`eigh_tridiagonal` lo hace **sólo si se lo pedimos**: por defecto devuelve los $N$
+estados (`select="a"`). Con `select="i"` y `select_range=(0, k-1)` usa
+bisección e iteración inversa y devuelve los $k$ más bajos. Eso hace
+`espectro` cuando recibe `cuantos`.
+
+**Normalización.** Los autovectores salen con $\sum_j\psi_j^2=1$. La
+función de onda continua debe cumplir $\int|\psi|^2dx=1$, así que dividimos por
+$\sqrt{\Delta x}$: entonces $\sum_j\psi_j^2\,\Delta x=1$.
+
+```{python}
+#| label: hamiltoniano
+
+def espectro(V, dx, cuantos=None, factor_cinetico=0.5):
+    """Autovalores y autofunciones de H = factor_cinetico * (-d²/dx²) + V.
+
+    V: potencial en los N puntos interiores de la grilla (hbar = m = 1).
+    dx: paso de la grilla.
+    cuantos: cantidad de estados de menor energía; None devuelve todos.
+    Las autofunciones (columnas) quedan normalizadas con  sum(psi²)·dx = 1.
+    """
+    salto = factor_cinetico / dx**2
+    diagonal = 2 * salto + V
+    fuera_de_diagonal = -salto * np.ones(len(V) - 1)
+    rango = None if cuantos is None else (0, cuantos - 1)
+    if rango is None:
+        E, psi = eigh_tridiagonal(diagonal, fuera_de_diagonal)
+    else:
+        E, psi = eigh_tridiagonal(diagonal, fuera_de_diagonal, select="i", select_range=rango)
+    return E, psi / np.sqrt(dx)
+
+
+def grilla(x_min, x_max, dx):
+    """Puntos interiores de [x_min, x_max]; la función vale 0 en los extremos."""
+    N = int(round((x_max - x_min) / dx)) - 1
+    return x_min + dx * np.arange(1, N + 1)
+
+
+def grilla_de_celdas(L, dx):
+    """Centros de las celdas de [-L, L]. Un borde del potencial ubicado en un
+    múltiplo de dx cae entre dos puntos y no sobre uno."""
+    return -L + dx * (np.arange(int(round(2 * L / dx))) + 0.5)
+```
+
+Con `espectro` definida, cronometramos el pozo infinito ($V=0$) pidiendo 10
+estados y todos:
+
+```{python}
+#| label: cronometro
+#| code-fold: true
+#| code-summary: "Código del cronómetro"
+
+from time import perf_counter
+
+def tiempo(N, cuantos, repeticiones):
+    """Mejor tiempo de varias repeticiones, en segundos."""
+    dx = 1 / (N + 1)
+    tiempos = []
+    for _ in range(repeticiones):
+        t0 = perf_counter()
+        espectro(np.zeros(N), dx, cuantos)
+        tiempos.append(perf_counter() - t0)
+    return min(tiempos)
+
+# Calentamiento: la primera llamada de cada modo carga rutinas y reserva memoria,
+# y ese costo único no es parte de lo que queremos medir.
+for cuantos in (10, None):
+    espectro(np.zeros(200), 1 / 201, cuantos)
+
+print("     N    10 estados      todos   cociente")
+for N in (500, 1000, 2000, 4000, 8000):
+    repeticiones = 3 if N < 8000 else 2
+    t10 = tiempo(N, 10, repeticiones)
+    t_todos = tiempo(N, None, repeticiones)
+    print(f"{N:>6}   {1e3 * t10:7.1f} ms  {1e3 * t_todos:7.1f} ms   {t_todos / t10:6.0f}")
+```
+
+Una sola medición no sirve: la primera llamada paga costos de arranque y
+otras tareas de la computadora meten ruido. Por eso hacemos **una corrida de
+calentamiento** y nos quedamos con el **mejor de varias repeticiones**: el
+ruido sólo agrega tiempo, nunca lo quita.
+
+- Con **10 estados**, el tiempo crece más o menos **como $N$**.
+- Con **todos**, crece mucho más rápido, y también la memoria: la matriz de
+  autovectores tiene $N^2$ elementos.
+- Los tiempos dependen de la computadora; lo que se conserva es la tendencia.
+
+## 2. Dos casos con solución exacta
+
+Un cálculo numérico se **audita** con casos donde conocemos la respuesta.
+
+### 2.1. Pozo infinito
+
+Una partícula en una caja de ancho $L$ con paredes impenetrables tiene
+niveles
+
+$$
+E_n=\frac{n^2\pi^2}{2L^2},\qquad n=1,2,3,\dots
+$$
+
+En nuestra discretización ese potencial es $V_j=0$: las paredes ya están
+puestas por $\psi_0=\psi_{N+1}=0$.
+
+**Antes de correr** (va a `question.md` en un práctico): con $L=1$ y $\Delta x$
+fijo, ¿el error relativo de $E_n$ es igual para todos los niveles? Si no,
+¿crece o decrece con $n$? ¿Cómo debería cambiar cuando se duplica $N$?
+
+```{python}
+#| label: pozo-infinito
+
+L = 1.0
+n = np.arange(1, 11)
+E_exacta = n**2 * np.pi**2 / (2 * L**2)
+
+print("   N     error de E_1   error de E_5   error de E_10")
+errores_caja = {}
+for N in (100, 200, 400):
+    dx = L / (N + 1)
+    E, _ = espectro(np.zeros(N), dx, 10)
+    errores_caja[N] = np.abs(E / E_exacta - 1)
+    error = errores_caja[N]
+    print(f"{N:>5}   {error[0]:.2e}      {error[4]:.2e}      {error[9]:.2e}")
+```
+
+```{python}
+#| label: fig-pozo-infinito
+#| fig-cap: "Pozo infinito: error relativo de cada nivel para tres resoluciones. Las rectas son proporcionales a n²."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.4))
+for N, error in errores_caja.items():
+    ax.loglog(n, error, "o-", ms=4, label=f"$N={N}$")
+    ax.loglog(n, error[0] * n**2, "k:", lw=0.8)
+ax.set(xlabel="número de nivel $n$", ylabel="error relativo de $E_n$")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25, which="both")
+fig.tight_layout()
+plt.show()
+```
+
+En la figura, las tres rectas de error son **paralelas a $n^2$** y se
+separan un factor cuatro. El error **crece con $n$** y **baja cuatro veces** al duplicar $N$: es de segundo
+orden en $\Delta x$, como la diferencia centrada. Se explica porque los
+niveles altos oscilan más rápido: tienen menos puntos de grilla por longitud
+de onda. Para $\psi\propto\sin(n\pi x/L)$, la diferencia centrada da el valor
+
+$$
+E_n^\text{grilla}=\frac{1-\cos(n\pi\,\Delta x/L)}{\Delta x^2},
+$$
+
+que para $n\Delta x\ll L$ se aproxima a $E_n\,[1-(n\pi\Delta x/L)^2/12]$.
+**El error relativo crece como $n^2\Delta x^2$:** de $n=1$ a $n=10$ es un
+factor cercano a 100, como muestra la tabla.
+
+**Regla práctica.** Sólo los estados con muchos puntos por longitud de onda son
+confiables. De los $N$ autovalores que devuelve el programa (sección 1), **sólo los
+más bajos son físicos**; los más altos son artefactos de la grilla.
+
+### 2.2. Oscilador armónico
+
+Con $V=\tfrac12x^2$ ($m=\omega=\hbar=1$), los niveles son
+$E_n=n+\tfrac12$. Pero hay un detalle: el potencial no vale infinito en ningún
+lado. **El dominio finito es una pared impenetrable en $\pm L$** que no existe
+en el problema original. Hay entonces dos aproximaciones separadas:
+
+| Parámetro | Qué aproxima | Qué esperamos |
+|---|---|---|
+| $\Delta x$ | la derivada segunda | error que crece con $n$ |
+| $L$ | el dominio infinito | error sólo cuando la función llega a la pared |
+
+**Antes de correr:** fijamos $\Delta x=0.05$ y variamos $L$ entre $3$ y $8$.
+¿Qué niveles cambian primero al achicar el dominio: los bajos o los altos?
+
+```{python}
+#| label: oscilador
+
+def oscilador(L, dx, cuantos=8, factor_cinetico=0.5):
+    x = grilla(-L, L, dx)
+    E, psi = espectro(0.5 * x**2, dx, cuantos, factor_cinetico)
+    return x, E, psi
+
+
+n = np.arange(8)
+print("niveles exactos:     ", np.round(n + 0.5, 3))
+errores_L, errores_dx = {}, {}
+print("\nvariamos L, dx = 0.05")
+for L in (3, 4, 8):
+    _, E, _ = oscilador(L, 0.05)
+    errores_L[L] = E - (n + 0.5)
+    print(f"L = {L}:  errores  ", np.round(errores_L[L], 3))
+print("\nvariamos dx, L = 8")
+for dx in (0.2, 0.1, 0.05):
+    _, E, _ = oscilador(8, dx)
+    errores_dx[dx] = E - (n + 0.5)
+    print(f"dx = {dx:<4}: errores  ", np.round(errores_dx[dx], 3))
+```
+
+```{python}
+#| label: fig-oscilador-errores
+#| fig-cap: "Oscilador armónico: error de cada nivel al variar el dominio L (izquierda, Δx = 0.05) y el paso Δx (derecha, L = 8). Los círculos llenos son errores positivos y los huecos, negativos."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ejes = plt.subplots(1, 2, figsize=(8.5, 3.4), sharey=True)
+for ax, errores, nombre in ((ejes[0], errores_L, "L"), (ejes[1], errores_dx, "\\Delta x")):
+    for k, (valor, e) in enumerate(errores.items()):
+        positivo = e > 0
+        ax.semilogy(n, np.abs(e), "-", color=f"C{k}", lw=0.8)
+        ax.semilogy(n[positivo], np.abs(e[positivo]), "o", color=f"C{k}", label=f"${nombre}={valor}$")
+        ax.semilogy(n[~positivo], np.abs(e[~positivo]), "o", mfc="none", color=f"C{k}")
+    ax.set(xlabel="nivel $n$")
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.25, which="both")
+ejes[0].set(ylabel="$|E_n-(n+1/2)|$", ylim=(1e-5, 10))
+fig.tight_layout()
+plt.show()
+```
+
+Las dos tablas tienen **firma distinta**:
+
+- Al **achicar $L$**, el error es **positivo** y aparece primero en los
+  niveles altos: la pared comprime la función y sube la energía. Los niveles
+  bajos no cambian hasta que $L$ es muy chico.
+- Al **agrandar $\Delta x$**, el error es **negativo** (la energía de la
+  grilla queda por debajo) y crece con el nivel.
+
+En la figura se ve lo mismo: a la izquierda las curvas de $L$ **se despegan en
+los niveles altos** (y a veces cambian de signo, como la de $L=4$); a la derecha
+las de $\Delta x$ son paralelas y **bajan de manera pareja**.
+
+**¿Por qué el error de $L=4$ mejora en $n=3$?** No converge: **dos errores de
+signo opuesto se cancelan**.
+
+- La **grilla** baja la energía (error negativo) y crece despacio con $n$.
+- La **pared** la sube (error positivo) y crece muy rápido con $n$, porque la
+  función de onda llega cada vez más cerca de $x=\pm L$.
+- Para $n\le2$ manda la grilla; para $n\ge4$, la pared. En $n=3$ valen casi lo
+  mismo y **se restan**.
+
+Se ve en la figura de abajo. Para $L=4$ el punto de retorno clásico de cada
+nivel, $x_n=\sqrt{2E_n}$, se acerca a la pared: en $n=3$ está en $2.6$ y en
+$n=7$, en $3.9$. Como la cancelación **depende del paso**, la mejora es una
+coincidencia: con $\Delta x$ más chico el error de $n=3$ cambia de signo.
+
+```{python}
+#| label: fig-oscilador-cancelacion
+#| fig-cap: "Oscilador armónico con L = 4 y Δx = 0.05. Izquierda: potencial, paredes, niveles exactos (rayas grises) y calculados (segmentos de color); las marcas son los puntos de retorno clásicos. Derecha: error con pared (L = 4), error de la grilla sola (L = 8) y diferencia, que es el aporte de la pared."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+L_pared, dx_fig = 4, 0.05
+x_fig, E_fig, _ = oscilador(L_pared, dx_fig)
+exacta = n + 0.5
+err_pared = E_fig - exacta
+err_grilla = errores_L[8]          # L = 8: la pared ya no se siente en estos niveles
+aporte_pared = err_pared - err_grilla
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 3.8))
+
+xs = np.linspace(-4.6, 4.6, 400)
+ax1.plot(xs, 0.5 * xs**2, "k", lw=1)
+ax1.axvspan(-4.6, -L_pared, color="0.85")
+ax1.axvspan(L_pared, 4.6, color="0.85")
+for k in range(8):
+    xt = np.sqrt(2 * exacta[k])
+    ax1.hlines(exacta[k], -xt, xt, color="0.5", ls="--", lw=0.8)
+    ax1.hlines(E_fig[k], -xt, xt, color=f"C{k}", lw=2)
+    ax1.plot([-xt, xt], [exacta[k]] * 2, "|", color=f"C{k}", ms=8)
+ax1.set(xlabel="$x$", ylabel="energía", xlim=(-4.6, 4.6), ylim=(0, 9))
+ax1.text(L_pared + 0.05, 8.5, "pared", fontsize=8, va="top")
+
+ax2.axhline(0, color="k", lw=0.6)
+ax2.plot(n, err_pared, "o-", label="con pared ($L=4$)")
+ax2.plot(n, err_grilla, "s--", label="grilla sola ($L=8$)")
+ax2.plot(n, aporte_pared, "^:", label="aporte de la pared")
+ax2.set_yscale("symlog", linthresh=1e-4)
+ax2.set(xlabel="nivel $n$", ylabel="$E_n-(n+1/2)$")
+ax2.legend(fontsize=8)
+ax2.grid(alpha=0.25, which="both")
+fig.tight_layout()
+plt.show()
+```
+
+En el panel derecho, la curva de grilla es negativa y suave; el aporte de la
+pared es positivo y crece más rápido. La curva "con pared" es su suma: pasa
+cerca de cero en $n=3$ y cambia de signo.
+
+Es la regla de la sección: **el dominio y la grilla se varían por separado**.
+Con los dos a la vez no sabemos cuál de los errores estamos mirando.
+Una función que ya llega a cero antes de la pared (a $|x|\approx5$ para los
+niveles más bajos) no siente el dominio.
+
+## 3. Controles físicos
+
+Con la lista de energías no alcanza. Las autofunciones tienen propiedades que
+se pueden verificar **sin conocer la solución exacta**. Las probamos con el
+oscilador ($L=8$, $\Delta x=0.05$).
+
+| Control | Qué debe cumplirse | Qué detecta |
+|---|---|---|
+| Normalización | $\int\lvert\psi\rvert^2dx=1$ | un error en $\Delta x$ al normalizar |
+| Ortogonalidad | $\int\psi_m\psi_n\,dx=\delta_{mn}$ | un $H$ no simétrico |
+| Paridad | $\psi_n(-x)=(-1)^n\psi_n(x)$ | un potencial desplazado |
+| Nodos | $\psi_n$ tiene $n$ ceros | un estado salteado |
+| Virial | $2\langle T\rangle=\langle x\,V'\rangle$ | un desbalance entre $T$ y $V$ |
+
+El **teorema del virial** para $V\propto x^2$ dice $\langle T\rangle=\langle V\rangle$.
+Es una consecuencia del problema: lo satisface la solución exacta.
+
+```{python}
+#| label: controles
+
+dx = 0.05
+x, E, psi = oscilador(8, dx, 8)
+
+norma = np.sum(psi**2, axis=0) * dx
+gram = psi.T @ psi * dx
+paridad = [np.max(np.abs(psi[:, k] - (-1) ** k * psi[::-1, k])) for k in range(8)]
+nodos = [int(np.sum(np.diff(np.sign(psi[:, k][np.abs(psi[:, k]) > 1e-8])) != 0)) for k in range(8)]
+
+
+def cinetica(f, dx, factor_cinetico=0.5):
+    """<T> = factor * integral(-psi psi'') calculado con el mismo laplaciano de H."""
+    ext = np.concatenate(([0.0], f, [0.0]))
+    lap = (ext[2:] - 2 * ext[1:-1] + ext[:-2]) / dx**2
+    return -factor_cinetico * np.sum(f * lap) * dx
+
+
+T0 = cinetica(psi[:, 0], dx)
+V0 = np.sum(0.5 * x**2 * psi[:, 0] ** 2) * dx
+
+print(f"norma: máx |1 - norma| = {np.max(np.abs(norma - 1)):.1e}")
+print(f"ortogonalidad: máx |G - 1| = {np.max(np.abs(gram - np.eye(8))):.1e}")
+print(f"paridad: máx asimetría = {max(paridad):.1e}")
+print("nodos:", nodos)
+print(f"virial (estado fundamental): <T> = {T0:.5f}, <V> = {V0:.5f}")
+```
+
+Todos se cumplen. Pero fíjense en lo que **no** prueba cada uno:
+
+- La **normalización** y la **ortogonalidad** valen para cualquier matriz
+  simétrica: `eigh_tridiagonal` las entrega por construcción. Verifican que
+  usamos bien la función, no que $H$ sea la correcta.
+- **Paridad** y **nodos** verifican la forma de las funciones, pero no la
+  escala de las energías.
+- Con el **virial** hay que tener cuidado de dónde sale $\langle T\rangle$. Si
+  se calcula con la misma matriz $H$, lo satisface también un
+  Hamiltoniano equivocado, pero coherente. Para detectar un error en $H$ se
+  necesita **una referencia que no salga de $H$**, como los niveles exactos
+  de la sección 2.
+
+## 4. Dominio y grilla: ¿estado ligado o estado de la caja?
+
+Un pozo finito de profundidad $V_0=10$ y ancho $a=3$ tiene un número finito de
+**estados ligados**: los de energía $E<V_0$, cuya función decae fuera del pozo.
+Los de $E>V_0$ son un continuo en la naturaleza, pero en el programa
+**siguen apareciendo como niveles discretos**: son estados de la caja
+de simulación.
+
+**Antes de correr:** calculamos las 14 energías más bajas con tres tamaños de
+dominio. ¿Cuáles esperamos que **no cambien** al agrandar $L$ y cuáles que sí?
+
+```{python}
+#| label: pozo-finito
+
+def pozo(L, dx, V0=10.0, ancho=3.0, cuantos=14):
+    x = grilla_de_celdas(L, dx)
+    V = np.where(np.abs(x) > ancho / 2, V0, 0.0)
+    E, psi = espectro(V, dx, cuantos)
+    return x, V, E, psi
+
+
+for L in (5, 8, 12):
+    _, _, E, _ = pozo(L, 0.02)
+    print(f"L = {L:>2}:", np.round(E, 3))
+```
+
+Los primeros cinco niveles ($0.41,\ 1.65,\ 3.67,\ 6.38,\ 9.44$) **no cambian**:
+son los estados ligados. Los demás **bajan cuando $L$ crece**, y se acumulan
+justo por encima de $V_0$. Son los de una partícula libre en una caja de
+ancho $2L$, cuyo espaciado baja como $1/L^2$.
+
+- **Estado ligado:** su energía **no depende** de $L$ (si $L$ es grande).
+- **Estado de la caja:** su energía depende de $L$ y se acumula arriba de $V_0$.
+
+Para distinguirlos no alcanza con mirar $E<V_0$ en un solo cálculo: hay que
+**repetir con otro dominio**. En la figura, los ligados son rectas horizontales.
+
+Para ver el patrón completo barremos $L$:
+
+```{python}
+#| label: barrido-pozo
+
+dominios = np.arange(4.0, 15.1, 1.0)
+niveles_pozo = np.array([pozo(L, 0.05)[2] for L in dominios])
+```
+
+```{python}
+#| label: fig-pozo-barrido
+#| fig-cap: "Pozo finito (V₀ = 10): las 14 energías más bajas en función del tamaño del dominio L. Los niveles ligados son horizontales; los de la caja bajan hacia V₀."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.8))
+for k in range(niveles_pozo.shape[1]):
+    ax.plot(dominios, niveles_pozo[:, k], "o-", ms=3, lw=1, color="C0" if k < 5 else "C3")
+ax.axhline(10.0, color="k", lw=0.8, ls="--")
+ax.text(dominios[0], 10.15, "$V_0$", ha="left", fontsize=9)
+ax.set(xlabel="semiancho del dominio $L$", ylabel="energía", ylim=(0, 15))
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-pozo-finito
+#| fig-cap: "Pozo finito (V₀ = 10, ancho 3): las cinco funciones ligadas montadas sobre su energía, y la primera de la caja, que llena todo el dominio."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+x, V, E, psi = pozo(8, 0.02)
+fig, ax = plt.subplots(figsize=(6.5, 3.8))
+ax.plot(x, V, "k", lw=1)
+for k in range(6):
+    ax.plot(x, E[k] + 1.2 * psi[:, k], lw=1.2, color="C0" if k < 5 else "C3")
+    ax.axhline(E[k], color="0.8", lw=0.5)
+ax.set(xlabel="$x$", ylabel="energía", xlim=(-8, 8), ylim=(-0.5, 12))
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+## 5. Doble pozo y efecto túnel
+
+Dos pozos separados por una barrera tienen, cada uno, un nivel fundamental. Si
+la barrera es gruesa, los dos pozos son independientes y el nivel es
+**casi doble**: un estado par y uno impar con casi la misma energía. Al
+acercar los pozos, los niveles se **desdoblan** por efecto túnel.
+
+**Antes de correr:** cada pozo tiene ancho $1$ y la barrera mide $15$ de alto;
+variamos la **separación** $s$ entre ellos. ¿Cómo debería depender el
+desdoblamiento $\Delta E=E_1-E_0$ de $s$? (Pista: dentro de la barrera la
+función decae como $e^{-\kappa x}$, con $\kappa=\sqrt{2(V_{\rm barrera}-E)}$.)
+
+```{python}
+#| label: doble-pozo
+
+def doble_pozo(separacion, dx=0.02, L=6.0, altura=15.0, ancho=1.0):
+    x = grilla_de_celdas(L, dx)
+    borde = separacion / 2
+    dentro = (np.abs(x) > borde) & (np.abs(x) < borde + ancho)
+    V = np.where(dentro, 0.0, altura)
+    E, psi = espectro(V, dx, 4)
+    return x, V, E, psi
+
+
+separaciones = np.array([0.4, 0.6, 0.8, 1.0, 1.2])
+desdoblamiento, E_pozo = [], []
+print("separación   E_0      E_1      ΔE")
+for s in separaciones:
+    _, _, E, _ = doble_pozo(s)
+    desdoblamiento.append(E[1] - E[0])
+    E_pozo.append(E[0])
+    print(f"   {s:.1f}     {E[0]:.4f}   {E[1]:.4f}   {E[1] - E[0]:.4f}")
+desdoblamiento = np.array(desdoblamiento)
+
+pendiente = np.polyfit(separaciones, np.log(desdoblamiento), 1)[0]
+kappa = np.sqrt(2 * (15.0 - np.mean(E_pozo)))
+print(f"\npendiente de log(ΔE) frente a s: {pendiente:.2f}   (-κ = {-kappa:.2f})")
+```
+
+El desdoblamiento **decae exponencialmente** con la separación. La
+pendiente de $\ln\Delta E$ frente a $s$ se parece a $-\kappa$: el
+desdoblamiento es proporcional a la **densidad de probabilidad** en el centro,
+$|\psi|^2\sim e^{-\kappa s}$, y no a la amplitud. Es una comprobación de orden,
+no un ajuste fino: $E$ cambia un poco con $s$, y $\kappa$ usa su promedio.
+Una partícula clásica no puede estar en la zona del medio; la cuántica
+**tiene probabilidad no nula** y por eso los dos pozos se conectan.
+
+```{python}
+#| label: fig-doble-pozo
+#| fig-cap: "Doble pozo con separación 0.6: el estado par (menor energía) y el impar tienen casi la misma energía; la diferencia es el desdoblamiento por túnel."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+x, V, E, psi = doble_pozo(0.6)
+fig, ax = plt.subplots(figsize=(6.5, 3.4))
+ax.plot(x, V / 15 * 4, "k", lw=1, label="potencial (escala reducida)")
+ax.plot(x, psi[:, 0], label=f"$E_0={E[0]:.3f}$")
+ax.plot(x, psi[:, 1], label=f"$E_1={E[1]:.3f}$")
+ax.set(xlabel="$x$", ylabel="$\\psi$", xlim=(-3, 3), ylim=(-1.6, 1.6))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+## 6. Átomo de hidrógeno: el problema radial
+
+En tres dimensiones con potencial central, la función de onda se escribe
+$\psi=\frac{u(r)}{r}Y_{\ell m}$ y $u$ cumple una ecuación **unidimensional**:
+
+$$
+-\frac12\,u''(r)+\Big[-\frac1r+\frac{\ell(\ell+1)}{2r^2}\Big]u(r)=E\,u(r).
+$$
+
+- El potencial es el de Coulomb (clase 03) más una **barrera centrífuga**
+  que depende del momento angular $\ell$.
+- La condición de borde es $u(0)=0$. Sale de pedir que $\psi=u/r$ sea
+  finita en el origen.
+- En unidades atómicas ($\hbar=m=e=1$), los niveles exactos son
+  $E_n=-1/(2n^2)$, y valen $n\ge\ell+1$.
+
+**Dos cuidados.**
+
+- **Origen.** Ponemos la grilla en $r_j=j\,\Delta r$, con $j\ge1$: nunca
+  evaluamos $1/r$ en $r=0$, y $u(0)=0$ queda implícito.
+- **Dominio.** Los estados ligados son más extendidos cuanto mayor es $n$: el
+  radio típico crece como $n^2$. Un dominio $R$ chico **trunca los estados
+  altos**.
+
+**Antes de correr:** con $\Delta r=0.05$, calculamos los cuatro primeros niveles
+con $R=20$, $40$ y $80$. ¿Qué niveles esperamos que se corrompan al achicar
+$R$?
+
+```{python}
+#| label: hidrogeno
+
+def radial(R, dr, ell=0, cuantos=4):
+    r = dr * np.arange(1, int(round(R / dr)) + 1)
+    V = -1 / r + ell * (ell + 1) / (2 * r**2)
+    E, u = espectro(V, dr, cuantos)
+    return r, E, u
+
+
+exactos = -0.5 / np.arange(1, 5) ** 2
+print("exactos:        ", np.round(exactos, 5))
+for R in (20, 40, 80):
+    _, E, _ = radial(R, 0.05)
+    print(f"R = {R:>2}:         ", np.round(E, 5))
+
+print("\nconvergencia del estado fundamental con el paso (R = 40):")
+errores = []
+for dr in (0.1, 0.05, 0.025, 0.0125):
+    _, E, _ = radial(40, dr, cuantos=1)
+    errores.append(abs(E[0] + 0.5))
+    print(f"  dr = {dr:<6}  error = {errores[-1]:.2e}")
+print("cocientes entre errores sucesivos:", np.round(np.array(errores[:-1]) / np.array(errores[1:]), 2))
+```
+
+- Con $R=20$ los niveles $n=3$ y $4$ **quedan mal** (el $n=4$ llega a ser
+  positivo, es decir, deja de ser un estado ligado); con $R=40$ se corrompe sólo
+  $n=4$; con $R=80$ los cuatro coinciden con el valor exacto.
+- Con $R$ suficiente, el error del fundamental **baja cuatro veces** al
+  duplicar la resolución: segundo orden, **aunque el potencial es singular
+  en el origen**. Es un resultado a verificar, no a suponer: se debe a que
+  $u(0)=0$ y $u\propto r$ cerca del origen, así que $u/r$ queda acotada.
+
+En la figura, los niveles se acercan al valor exacto **desde arriba** al agrandar
+$R$, y cada $n$ necesita un dominio mayor que el anterior.
+
+**Momento angular.** Para $\ell=1$ el nivel más bajo es el $2p$ ($E=-1/8$) y
+para $\ell=2$, el $3d$ ($E=-1/18$): **los niveles con la misma $n$ coinciden
+para todo $\ell<n$**. Es la degeneración especial del Coulomb. Podemos
+verificarlo con `radial(60, 0.02, ell=1, cuantos=3)`.
+
+```{python}
+#| label: barrido-radio
+
+radios = np.array([10.0, 15, 20, 30, 40, 60, 80, 120])
+niveles_radio = np.array([radial(R, 0.05)[1] for R in radios])
+```
+
+```{python}
+#| label: fig-hidrogeno-radio
+#| fig-cap: "Hidrógeno (ℓ = 0, Δr = 0.05): los cuatro primeros niveles en función del radio del dominio R. Las líneas punteadas son los valores exactos −1/(2n²)."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+for k in range(4):
+    ax.semilogx(radios, niveles_radio[:, k], "o-", ms=3, lw=1, color=f"C{k}", label=f"$n={k + 1}$")
+    ax.axhline(-0.5 / (k + 1) ** 2, color=f"C{k}", ls=":", lw=0.8)
+ax.set(xlabel="radio del dominio $R$", ylabel="energía", ylim=(-0.55, 0.15))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25, which="both")
+fig.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-hidrogeno
+#| fig-cap: "Funciones radiales u(r) del hidrógeno para ℓ = 0 (R = 80, Δr = 0.05), montadas sobre su energía."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+r, E, u = radial(80, 0.05)
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.plot(r, -1 / r, "k", lw=1)
+for k in range(3):
+    ax.plot(r, E[k] + 0.25 * u[:, k] * np.sign(u[5, k]), lw=1.2)
+    ax.axhline(E[k], color="0.8", lw=0.5)
+ax.set(xlabel="$r$", ylabel="energía", xlim=(0, 70), ylim=(-0.6, 0.1))
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+## 7. Discusión en grupos: un resultado plausible
+
+Un informe presenta el siguiente resultado:
+
+> Construimos el Hamiltoniano del oscilador armónico con
+> $\hbar=m=\omega=1$, $L=8$ y $\Delta x=0.05$, y calculamos los niveles. **Los
+> cocientes $E_n/E_0$ son $1$, $3.000$, $4.999$, $6.998$, $8.996$, $10.994$, que
+> coinciden con los exactos $2n+1$ a una parte en mil. Los niveles están
+> equiespaciados, la normalización es $1$ y la ortogonalidad se cumple a
+> $10^{-15}$. Concluimos que el Hamiltoniano es correcto.**
+
+```{python}
+#| label: informe
+
+x, E_mal, psi_mal = oscilador(8, 0.05, 6, factor_cinetico=1.0)
+print("cocientes E_n / E_0:", np.round(E_mal / E_mal[0], 3))
+print("espaciados:         ", np.round(np.diff(E_mal), 4))
+print("E_0:", round(E_mal[0], 4))
+print("norma:", np.round(np.sum(psi_mal**2, axis=0) * 0.05, 10))
+```
+
+1. ¿Qué control de las secciones 2 y 3 **no** distingue este Hamiltoniano del
+   correcto?
+2. ¿Qué cambió en el código? Escriban el factor que debería tener la energía
+   cinética y qué valor de $E_0$ debería salir.
+3. Propongan **dos controles** que detecten el error. Uno puede usar una
+   cantidad que no sea una energía.
+4. Escriban la afirmación que el informe sí podía hacer.
+
+## 8. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- discretizar $\hat H$ lleva a una matriz tridiagonal simétrica, y
+  `eigh_tridiagonal` la diagonaliza sin que implementemos ningún algoritmo;
+- el error relativo de los niveles crece con el número cuántico como
+  $n^2\Delta x^2$: sólo los más bajos son confiables;
+- el dominio finito y la grilla son dos aproximaciones separadas, que se
+  variarán por separado;
+- un estado ligado no cambia al agrandar el dominio; uno de la caja sí;
+- los niveles del oscilador y del hidrógeno reproducen los exactos con
+  segundo orden en el paso.
+
+No podemos concluir que:
+
+- una lista de autovalores sean estados físicos sólo porque el programa los
+  devuelve;
+- la normalización o la ortogonalidad validen el Hamiltoniano: las cumple
+  cualquier matriz simétrica;
+- los cocientes entre niveles bastan: un factor equivocado en la energía
+  cinética los conserva y cambia todos los valores absolutos;
+- el desdoblamiento del doble pozo siga **exactamente** $e^{-\kappa s}$: es una
+  estimación de orden.
+
+### Puente con la clase 11
+
+Los autoestados $\phi_n$ de hoy son la base en la que se escribe la evolución
+temporal: si $\psi(0)=\sum_nc_n\phi_n$, entonces
+
+$$
+\psi(t)=\sum_nc_n\,e^{-iE_nt}\,\phi_n.
+$$
+
+En la clase 11 usamos esto como **referencia independiente** para un método
+de integración temporal.
+
+### Pregunta de salida
+
+> **Un Hamiltoniano discretizado devuelve una lista de energías. ¿Qué tres
+> controles independientes le pedimos antes de decir que son niveles
+> físicos?**
+
+> **Para leer.** *Un verdor terrible*, de Benjamín Labatut (Anagrama, 2020),
+> mezcla hechos y ficción sobre la ciencia del siglo XX, incluido el
+> nacimiento de la mecánica cuántica con Schrödinger y Heisenberg. Sirve para
+> sentir la época, pero los datos de esta clase no salen de ahí.
+
+![Portada de *Un verdor terrible*, de Benjamín Labatut (Anagrama, 2020).](figuras/10-labatut-verdor-terrible.jpg){width=25%}
+
+## Referencias
+
+- D. J. Griffiths y D. F. Schroeter, *Introduction to Quantum Mechanics*,
+  Cambridge University Press (3.ª ed., 2018). Capítulos 2 y 4.
+- J. Thijssen, *Computational Physics*, Cambridge University Press
+  (2.ª ed., 2007). Capítulo 2.
+- R. Shankar, *Principles of Quantum Mechanics*, Springer (2.ª ed., 1994).
