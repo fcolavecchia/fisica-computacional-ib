@@ -1,0 +1,866 @@
+---
+title: "Schrödinger dependiente del tiempo y colisiones cuánticas"
+subtitle: "Física Computacional 2026"
+fecha: a definir
+# Esta clase ejecuta sus ejemplos al renderizar y se exporta como notebook.
+execute:
+  enabled: true
+other-links:
+  - text: Descargar notebook
+    href: ../notebooks/11-1-schrodinger-temporal.ipynb
+    icon: download
+  - text: Abrir en Colab
+    href: https://colab.research.google.com/github/fcolavecchia/fisica-computacional-ib/blob/2026/contenidos/notebooks/11-1-schrodinger-temporal.ipynb
+    icon: google
+---
+
+> **Pregunta de la clase.** ¿Qué cambia cuando la colisión de la clase 03 es
+> cuántica, y qué método numérico conserva la probabilidad?
+
+En la clase 03 lanzamos una partícula contra un potencial y medimos el ángulo
+al que sale. Cada parámetro de impacto daba **un** ángulo. Hoy la partícula es
+un **paquete de ondas** y la respuesta es otra: no hay una trayectoria, hay
+**probabilidades** de que se refleje o de que atraviese.
+
+Para calcularlas hay que integrar la ecuación de Schrödinger en el tiempo, y
+ahí reaparece el problema de la clase 01: no todo método de integración sirve.
+Hoy comparamos dos y elegimos con una regla física: **la probabilidad total
+tiene que valer 1 en todo momento**.
+
+```{python}
+#| label: imports
+#| include: false
+
+import numpy as np
+import matplotlib.pyplot as plt
+from IPython.display import HTML
+from matplotlib import animation
+from scipy.linalg import eigh_tridiagonal, solve_banded
+
+
+def animar(figura, actualizar, cuadros, intervalo=100):
+    """Animación de matplotlib embebida en la página, sin depender de ffmpeg."""
+    pelicula = animation.FuncAnimation(figura, actualizar, frames=cuadros, interval=intervalo)
+    html = pelicula.to_jshtml(default_mode="loop")
+    plt.close(figura)
+    return HTML(html)
+```
+
+## 1. Paquete gaussiano libre
+
+La ecuación de Schrödinger dependiente del tiempo, en unidades
+$\hbar=m=1$, es
+
+$$
+i\,\frac{\partial\psi}{\partial t}=\hat H\psi,\qquad
+\hat H=-\frac12\frac{\partial^2}{\partial x^2}+V(x).
+$$
+
+Dada $\psi(x,0)$, queda determinada para todo $t$. Si $\hat H$ no depende
+del tiempo, la solución formal es
+
+$$
+\psi(t)=e^{-i\hat Ht}\,\psi(0).
+$$
+
+Como $\hat H$ es hermítico, el operador $U=e^{-i\hat Ht}$ es **unitario**:
+$U^\dagger U=1$. Por eso $\int|\psi|^2dx$ **no cambia**: la probabilidad total
+se conserva. Es la propiedad que el método numérico debe respetar.
+
+Empezamos por el caso con solución exacta: un **paquete gaussiano** libre
+($V=0$), centrado en $x_0$, de ancho $\sigma$ y con impulso medio $k_0$:
+
+$$
+\psi(x,0)=\frac{1}{(2\pi\sigma^2)^{1/4}}\,e^{-(x-x_0)^2/4\sigma^2}\,e^{ik_0x}.
+$$
+
+Su evolución exacta es (por ejemplo, Shankar, capítulo 5)
+
+$$
+\psi(x,t)=\frac{1}{\sqrt{\sqrt{2\pi}\,\sigma\,s_t}}\,
+\exp\!\left[-\frac{(x-x_0-k_0t)^2}{4\sigma^2s_t}\right]
+e^{\,i(k_0x-k_0^2t/2)},\qquad s_t=1+\frac{it}{2\sigma^2}.
+$$
+
+- El **centro** se mueve a velocidad constante $k_0$: una partícula libre.
+- El **ancho** crece: $\sigma(t)=\sigma\sqrt{1+(t/2\sigma^2)^2}$. Para $t$ grande
+  crece **linealmente** con $t$, no como la raíz de la difusión de la clase 08.
+  La ecuación se parece a la del calor, pero con una $i$: el paquete **se ensancha
+  oscilando, sin disipar**.
+
+```{python}
+#| label: libre
+
+def gaussiana(x, x0, sigma, k0, t=0.0):
+    """Paquete gaussiano libre (hbar = m = 1) normalizado, evaluado a tiempo t."""
+    s = 1 + 1j * t / (2 * sigma**2)
+    amplitud = np.exp(-((x - x0 - k0 * t) ** 2) / (4 * sigma**2 * s))
+    fase = np.exp(1j * (k0 * x - k0**2 * t / 2))
+    return amplitud * fase / np.sqrt(np.sqrt(2 * np.pi) * sigma * s)
+
+
+def norma(psi, dx):
+    return np.sum(np.abs(psi) ** 2) * dx
+
+
+# Dominio [0, 100] con paredes duras; N puntos interiores
+dx = 0.1
+x = dx * np.arange(1, int(round(100 / dx)))
+x0, sigma, k0 = 30.0, 2.0, 2.0
+psi0 = gaussiana(x, x0, sigma, k0)
+
+print(f"norma inicial = {norma(psi0, dx):.6f}")
+for t in (0, 5, 10, 15):
+    p = gaussiana(x, x0, sigma, k0, t)
+    centro = np.sum(x * np.abs(p) ** 2) * dx
+    ancho = np.sqrt(np.sum((x - centro) ** 2 * np.abs(p) ** 2) * dx)
+    print(f"t = {t:>2}:  centro = {centro:6.2f} (x0 + k0 t = {x0 + k0 * t:6.2f})   "
+          f"ancho = {ancho:.3f} (fórmula {sigma * np.sqrt(1 + (t / (2 * sigma**2)) ** 2):.3f})")
+```
+
+```{python}
+#| label: fig-gaussiana-tiempos
+#| fig-cap: "Paquete gaussiano libre, solución exacta: la densidad de probabilidad se desplaza, se ensancha y baja su máximo."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.4))
+for t in (0, 5, 10, 15, 20):
+    ax.plot(x, np.abs(gaussiana(x, x0, sigma, k0, t)) ** 2, label=f"$t={t}$")
+ax.set(xlabel="$x$", ylabel="$|\\psi|^2$", xlim=(15, 100))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+La solución exacta es nuestro primer **control independiente**: cualquier
+método tiene que reproducirla.
+
+## 2. Euler explícito (FTCS) falla
+
+El método más sencillo es el de la clase 00: desarrollar la exponencial a
+primer orden,
+
+$$
+\psi^{n+1}=(1-i\,\Delta t\,H)\,\psi^n.
+$$
+
+Con la diferencia centrada de la clase 08 para la derivada segunda, cada paso es
+un producto matriz por vector con la $H$ tridiagonal de la clase 10. Es
+FTCS, y en difusión lo conocemos: estable si $r=D\Delta t/\Delta x^2\le1/2$.
+
+**Antes de correr:** ¿qué debería pasar con la norma de $\psi$ al integrar el
+paquete libre hasta $t=5$ con $\Delta t=10^{-3}$, $3\times10^{-4}$ y $10^{-4}$?
+Piensen en la región de estabilidad de Euler de la clase 01: los autovalores
+de $-iH$ son **imaginarios puros**.
+
+```{python}
+#| label: ftcs
+
+def aplicar_H(psi, V, dx):
+    """H psi con paredes duras: la función vale 0 fuera de la grilla."""
+    salto = 0.5 / dx**2
+    Hpsi = (2 * salto + V) * psi
+    Hpsi[1:] -= salto * psi[:-1]
+    Hpsi[:-1] -= salto * psi[1:]
+    return Hpsi
+
+
+def evolucionar_ftcs(psi, V, dx, dt, T):
+    for _ in range(int(round(T / dt))):
+        psi = psi - 1j * dt * aplicar_H(psi, V, dx)
+    return psi
+
+
+V = np.zeros_like(x)
+E_max = 2 / dx**2   # el mayor autovalor de H es del orden de 2/dx²
+
+print("  dt        norma a t = 5    factor por paso del modo más rápido")
+for dt in (1e-3, 3e-4, 1e-4):
+    p = evolucionar_ftcs(psi0, V, dx, dt, 5.0)
+    print(f"{dt:>7.0e}    {norma(p, dx):>12.4g}      {np.sqrt(1 + (dt * E_max) ** 2):.6f}")
+```
+
+**No hay paso que lo salve.** Veamos por qué.
+
+### 2.1. El factor de amplificación, paso a paso
+
+Es el análisis de von Neumann de la clase 08. Con $V=0$, FTCS es
+
+$$
+\psi_j^{n+1}=\psi_j^n+\frac{i\Delta t}{2\Delta x^2}
+\left(\psi_{j+1}^n-2\psi_j^n+\psi_{j-1}^n\right).
+$$
+
+**Paso 1: proponer un modo.** Una onda plana cuya amplitud se multiplica por
+$\xi$ en cada paso:
+
+$$
+\psi_j^n=\xi^n\,e^{ikx_j}.
+$$
+
+**Paso 2: escribir los vecinos.** Como $x_{j\pm1}=x_j\pm\Delta x$,
+
+$$
+\psi_{j\pm1}^n=\psi_j^n\,e^{\pm ik\Delta x}.
+$$
+
+**Paso 3: reemplazar y dividir por $\psi_j^n$.**
+
+$$
+\xi=1+\frac{i\Delta t}{2\Delta x^2}
+\left(e^{ik\Delta x}-2+e^{-ik\Delta x}\right).
+$$
+
+**Paso 4: simplificar.** Con
+$e^{i\theta}+e^{-i\theta}-2=-4\sin^2(\theta/2)$,
+
+$$
+\xi=1-i\Delta t\,E_k,\qquad
+E_k=\frac{2}{\Delta x^2}\sin^2\!\left(\frac{k\Delta x}{2}\right).
+$$
+
+- $E_k$ es la **energía del modo en la grilla**: $H\,e^{ikx_j}=E_k\,e^{ikx_j}$.
+- Para $k\Delta x\ll1$ recupera $k^2/2$.
+- Es la cuenta de difusión con $D=i/2$.
+
+**Paso 5: tomar el módulo.** $\xi$ es complejo, con parte real $1$ y parte
+imaginaria $-\Delta tE_k$:
+
+$$
+\boxed{|\xi|=\sqrt{1+(\Delta tE_k)^2}>1\quad
+\text{para todo }\Delta t>0\text{ si }E_k\neq0.}
+$$
+
+El peor caso es $k\Delta x=\pi$, con $E_\text{máx}=2/\Delta x^2$.
+
+**¿Y con potencial?** Se reemplaza la onda plana por un autovector de la
+matriz, $H\phi=E\phi$. Entonces $\psi^n=\xi^n\phi$ y
+$\xi=1-i\Delta tE$, con $E$ real porque $H$ es hermítica.
+
+**Paso 6: acumular hasta el tiempo $t$.** Son $n=t/\Delta t$ pasos, y la
+probabilidad de ese modo se multiplica por
+
+$$
+|\xi|^{2n}=\left[1+(\Delta tE)^2\right]^{t/\Delta t}
+\approx e^{\,t\,\Delta t\,E^2}\qquad(\Delta tE\ll1).
+$$
+
+Achicar $\Delta t$ reduce el exponente, pero para un $t$ suficientemente
+largo el modo crece igual.
+
+### 2.2. Qué dice la tabla
+
+- En difusión, $\xi=1-r\cdot(\text{algo})$ es **real** y sólo pasa de 1 en
+  magnitud si $r$ es grande: hay un $\Delta t$ que funciona.
+- Acá $\xi$ **siempre** está fuera del círculo unidad. Achicar $\Delta t$ sólo
+  **retrasa** el crecimiento: con $\Delta t=10^{-4}$ la norma apenas se movió
+  hasta $t=5$, pero el modo más rápido sigue creciendo y terminaría
+  explotando a tiempos mayores.
+- Los modos de alta energía (los que la grilla distorsiona) son los que
+  crecen más rápido.
+
+La tabla muestra el efecto: con $\Delta t=10^{-3}$ la norma explota, y con
+$3\times10^{-4}$ y $10^{-4}$ todavía no, pero el factor por paso sigue
+siendo mayor que 1.
+
+Se puede **renormalizar** en cada paso, pero eso tapa el síntoma sin curar la
+causa: el método no es unitario y el error se acumula en la fase.
+
+## 3. Crank–Nicolson
+
+La fórmula de **Cayley** aproxima la exponencial con un cociente:
+
+$$
+e^{-iH\Delta t}\approx\frac{1-iH\Delta t/2}{1+iH\Delta t/2}.
+$$
+
+- Es correcta hasta segundo orden en $\Delta t$.
+- Es **exactamente unitaria** si $H$ es hermítico: numerador y denominador
+  son conjugados uno del otro, así que el módulo del cociente vale $1$ para
+  cada autovalor.
+
+El paso queda
+
+$$
+\left(1+\frac{i\Delta t}{2}H\right)\psi^{n+1}=\left(1-\frac{i\Delta t}{2}H\right)\psi^{n}.
+$$
+
+Es un método **implícito** (clase 01): hay que resolver un sistema. Pero la
+matriz de la izquierda es **tridiagonal** y se resuelve en $O(N)$ operaciones
+por paso, con `scipy.linalg.solve_banded`.
+
+```{python}
+#| label: cn
+
+def evolucionar_cn(psi, V, dx, dt, T, cada=None):
+    """Crank-Nicolson hasta el tiempo T. Si `cada` se da, guarda copias de psi
+    cada `cada` pasos y devuelve (psi_final, tiempos, copias)."""
+    salto = 0.5 / dx**2
+    a = 0.5j * dt
+    banda = np.zeros((3, len(psi)), dtype=complex)
+    banda[0, 1:] = -a * salto
+    banda[1] = 1 + a * (2 * salto + V)
+    banda[2, :-1] = -a * salto
+    tiempos, copias = [], []
+    for paso in range(int(round(T / dt))):
+        if cada and paso % cada == 0:
+            tiempos.append(paso * dt)
+            copias.append(psi.copy())
+        psi = solve_banded((1, 1), banda, psi - a * aplicar_H(psi, V, dx))
+    if cada:
+        return psi, np.array(tiempos), np.array(copias)
+    return psi
+
+
+exacta = gaussiana(x, x0, sigma, k0, 10.0)
+print("   dt     |1 - norma|    error frente a la solución exacta (t = 10)")
+for dt in (0.1, 0.05, 0.025):
+    p = evolucionar_cn(psi0, V, dx, dt, 10.0)
+    error = np.sqrt(np.sum(np.abs(p - exacta) ** 2) * dx)
+    print(f"{dt:>6}   {abs(1 - norma(p, dx)):.1e}      {error:.4f}")
+```
+
+La norma se conserva hasta el error de redondeo, para cualquier $\Delta t$.
+Pero el error frente a la solución exacta **no baja como $\Delta t^2$**:
+se estanca. Algo más está contribuyendo. Es lo que vamos a separar.
+
+**Dos errores.** El método tiene dos fuentes:
+
+- el **paso temporal** $\Delta t$ (la aproximación de Cayley);
+- el **paso espacial** $\Delta x$ (la diferencia centrada).
+
+Para ver cada uno por separado necesitamos una referencia que sea **exacta
+en el tiempo** para la misma $H$ discreta. Es lo que hacemos en la sección
+siguiente.
+
+::: {.callout-note}
+## Otro método: partición de operadores
+Hay un método usual para $\hat H=\hat T+\hat V$, con la energía cinética
+$\hat T=\hat p^2/2$ y la potencial $\hat V$: aplicar $e^{-i\hat V\Delta t/2}$,
+luego $e^{-i\hat T\Delta t}$ y de nuevo $e^{-i\hat V\Delta t/2}$. Es de
+segundo orden y cada factor es unitario. El primero y el último son
+diagonales en la grilla; el del medio es diagonal en el espacio de Fourier,
+así que se aplica con la transformada rápida de Fourier. No lo implementamos
+hoy: Crank–Nicolson alcanza para los controles que queremos hacer.
+:::
+
+### 3.1. Cuando el paquete llega a la pared
+
+La grilla termina en $x=100$, donde imponemos $\psi=0$: una **pared dura**.
+La solución exacta de la sección 1 es la del espacio **infinito**, sin pared.
+
+**Antes de correr:** el centro arranca en $x_0=30$ con $k_0=2$. ¿Cuándo
+llegaría a la pared? ¿Qué forma esperan para $|\psi|^2$ en ese momento?
+
+```{python}
+#| label: pared
+
+tiempos_pared = (25.0, 30.0, 35.0, 45.0)
+numericas = []
+psi_p, t_previo = psi0, 0.0
+for t in tiempos_pared:
+    psi_p = evolucionar_cn(psi_p, V, dx, 0.025, t - t_previo)
+    numericas.append(psi_p)
+    t_previo = t
+
+print("  t     norma (CN)    probabilidad exacta (sin pared) más allá de x = 100")
+x_mas_alla = 100 + dx * np.arange(1000)
+for t, p in zip(tiempos_pared, numericas):
+    fuera = norma(gaussiana(x_mas_alla, x0, sigma, k0, t), dx)
+    print(f"{t:>4.0f}    {norma(p, dx):.6f}      {fuera:.4f}")
+```
+
+```{python}
+#| label: fig-pared
+#| fig-cap: "Crank–Nicolson con pared en x = 100 (línea llena) frente a la solución exacta en el espacio infinito (línea punteada)."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+x_ancho = dx * np.arange(1, 1400)
+fig, ejes = plt.subplots(len(tiempos_pared), 1, figsize=(6.5, 6.4), sharex=True, sharey=True)
+for ax, t, p in zip(ejes, tiempos_pared, numericas):
+    ax.axvspan(100, 140, color="0.9")
+    ax.plot(x_ancho, np.abs(gaussiana(x_ancho, x0, sigma, k0, t)) ** 2, "k--", lw=1, label="exacta sin pared")
+    ax.plot(x, np.abs(p) ** 2, "C1", lw=1.2, label="Crank–Nicolson con pared")
+    ax.set(ylabel="$|\\psi|^2$", xlim=(40, 130))
+    ax.set_title(f"$t={t:.0f}$", fontsize=9)
+    ax.grid(alpha=0.25)
+ejes[0].legend(fontsize=8)
+ejes[-1].set_xlabel("$x$")
+fig.tight_layout()
+plt.show()
+```
+
+- Mientras el paquete está **lejos de la pared**, las dos curvas casi coinciden.
+- Al **llegar**, aparecen **franjas**: la onda incidente interfiere con la
+  reflejada, con separación cercana a $\pi/k_0\approx1.6$.
+- Después, el paquete **vuelve** hacia la izquierda.
+- **La norma sigue valiendo $1$**: la reflexión no es un error del integrador,
+  es la condición de borde que impusimos.
+
+## 4. Una referencia independiente: los autoestados de la clase 10
+
+Si conocemos los autoestados $\phi_n$ y energías $E_n$ de la **misma matriz**
+$H$ (la clase 10), la evolución es exacta:
+
+$$
+\psi(t)=\sum_nc_n\,e^{-iE_nt}\,\phi_n,\qquad c_n=\sum_j\phi_n(x_j)\,\psi_j(0)\,\Delta x.
+$$
+
+No hay paso temporal: sólo diagonalizar una vez. Es una referencia
+**independiente** del integrador y exacta para la $H$ discreta (aunque
+$O(N^2)$ en memoria, razonable para $N\sim10^3$).
+
+```{python}
+#| label: espectral
+
+def evolucion_espectral(psi0, V, dx, tiempos):
+    """psi(t) = sum_n c_n exp(-i E_n t) phi_n para la H discreta (hbar = m = 1)."""
+    salto = 0.5 / dx**2
+    E, phi = eigh_tridiagonal(2 * salto + V, -salto * np.ones(len(V) - 1))
+    c = phi.T @ psi0
+    return [phi @ (c * np.exp(-1j * E * t)) for t in tiempos]
+
+
+(referencia,) = evolucion_espectral(psi0, V, dx, [10.0])
+
+print("Frente a la referencia espectral (misma H, exacta en el tiempo):")
+for dt in (0.1, 0.05, 0.025):
+    p = evolucionar_cn(psi0, V, dx, dt, 10.0)
+    print(f"  dt = {dt:<6} error = {np.sqrt(np.sum(np.abs(p - referencia) ** 2) * dx):.5f}")
+err_dx = np.sqrt(np.sum(np.abs(referencia - exacta) ** 2) * dx)
+print(f"\nreferencia espectral frente a la solución exacta continua: {err_dx:.4f}")
+```
+
+Ahora se ven los dos errores por separado:
+
+- **Contra la referencia espectral**, el error **baja cuatro veces** al
+  reducir $\Delta t$ a la mitad: es de segundo orden en el tiempo, como
+  corresponde.
+- La **referencia espectral frente a la solución exacta** da el valor al que
+  se estancaba el error anterior: es el error de **discretización espacial**,
+  que ningún paso temporal puede remover.
+
+Para $\Delta x$:
+
+```{python}
+#| label: convergencia-dx
+
+print("   dx     error frente a la solución exacta (CN con dt = 0.01)")
+errores_dx = []
+for dx_i in (0.2, 0.1, 0.05):
+    x_i = dx_i * np.arange(1, int(round(100 / dx_i)))
+    p = evolucionar_cn(gaussiana(x_i, x0, sigma, k0), np.zeros_like(x_i), dx_i, 0.01, 10.0)
+    errores_dx.append(np.sqrt(np.sum(np.abs(p - gaussiana(x_i, x0, sigma, k0, 10.0)) ** 2) * dx_i))
+    print(f"{dx_i:>6}   {errores_dx[-1]:.5f}")
+print("cocientes entre errores sucesivos:", np.round(np.array(errores_dx[:-1]) / np.array(errores_dx[1:]), 2))
+```
+
+El error espacial también baja cuatro veces al reducir $\Delta x$ a la mitad. En una
+simulación se **varían por separado**: con los dos a la vez no sabemos cuál de
+los errores estamos viendo.
+
+**Por qué el espacio importa tanto.** En la grilla, una onda plana de
+número $k$ tiene energía $(1-\cos k\Delta x)/\Delta x^2$ y no $k^2/2$. La
+diferencia hace que ondas de distinto $k$ avancen con velocidad levemente
+distinta. Para $k_0=2$, $\Delta x=0.1$ y $t=10$, esa diferencia de fase se
+acumula.
+
+```{python}
+#| label: fig-libre
+#| fig-cap: "Paquete libre a t = 10: densidad de probabilidad exacta, de Crank–Nicolson y su diferencia (ampliada ×20)."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+p = evolucionar_cn(psi0, V, dx, 0.025, 10.0)
+fig, ax = plt.subplots(figsize=(6.5, 3.4))
+ax.plot(x, np.abs(exacta) ** 2, "k", lw=1, label="exacta")
+ax.plot(x, np.abs(p) ** 2, "C1--", lw=1.2, label="Crank–Nicolson")
+ax.plot(x, 20 * (np.abs(p) ** 2 - np.abs(exacta) ** 2), "C3", lw=1, label="diferencia ×20")
+ax.set(xlabel="$x$", ylabel="$|\\psi|^2$", xlim=(30, 70))
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+## 5. Estado coherente en el oscilador armónico
+
+Volvemos al oscilador de las clases 01 y 02. Un paquete gaussiano de ancho
+$\sigma=1/\sqrt2$ (el del estado fundamental) pero **corrido** a $x_0=2$ es un
+**estado coherente**. Su valor medio $\langle x\rangle$ obedece la **misma**
+ecuación de movimiento que la partícula clásica,
+$\ddot{x}=-x$. Y su ancho **no cambia** (salvo error numérico).
+
+**Antes de correr:** simulamos un período completo, $t=2\pi$. ¿Cuánto debería
+valer $\langle x\rangle$ a $t=\pi$? ¿Y la desviación estándar a cualquier
+tiempo?
+
+```{python}
+#| label: coherente
+
+dx_o = 0.05
+x_o = dx_o * np.arange(1, int(round(16 / dx_o))) - 8.0
+V_o = 0.5 * x_o**2
+psi_c = gaussiana(x_o, 2.0, 1 / np.sqrt(2), 0.0)
+
+dt = 0.02
+periodo = 2 * np.pi
+_, tiempos_c, copias_c = evolucionar_cn(psi_c, V_o, dx_o, dt, periodo, cada=1)
+densidades = np.abs(copias_c) ** 2
+x_medio = densidades @ x_o * dx_o
+dispersion = np.sqrt(densidades @ x_o**2 * dx_o - x_medio**2)
+
+print(f"error máximo de <x> frente a 2 cos t:  {np.max(np.abs(x_medio - 2 * np.cos(tiempos_c))):.4f}")
+print(f"<x>(t = pi) = {np.interp(np.pi, tiempos_c, x_medio):.4f}")
+print(f"desviación estándar: mínimo {dispersion.min():.4f}, máximo {dispersion.max():.4f}  (1/sqrt(2) = {1 / np.sqrt(2):.4f})")
+print(f"norma: máx |1 - norma| = {np.max(np.abs(1 - densidades.sum(axis=1) * dx_o)):.1e}")
+```
+
+```{python}
+#| label: fig-coherente
+#| fig-cap: "Estado coherente en el oscilador: valor medio de la posición frente a la trayectoria clásica x = 2 cos t."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+fig, ax = plt.subplots(figsize=(6.5, 3.2))
+ax.plot(tiempos_c, 2 * np.cos(tiempos_c), "k", lw=1, label="clásica $2\\cos t$")
+ax.plot(tiempos_c, x_medio, "C1--", lw=1.4, label="$\\langle x\\rangle$ cuántico")
+ax.set(xlabel="$t$", ylabel="posición")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+El valor medio sigue la trayectoria clásica (a menos de $0.02$ sobre una
+amplitud de $2$) y la desviación estándar queda dentro de $2\,\%$ de
+$1/\sqrt2$: el paquete no se ensancha. Eso
+**es característico del oscilador armónico**: para un potencial cuadrático, las
+ecuaciones de $\langle x\rangle$ y $\langle p\rangle$ se cierran solas y coinciden con las clásicas.
+Con otros potenciales, el paquete se ensancha y $\langle x\rangle$ se separa
+de la trayectoria clásica.
+
+## 6. Colisión con una barrera
+
+Un paquete gaussiano avanza hacia una **barrera rectangular** de altura
+$V_0=2$ y ancho $a=2$. Partimos de $x_0=60$ con $\sigma=5$ (ancho de
+impulso $1/2\sigma=0.1$, es decir, una energía bien definida) e
+$k_0$ variable; la barrera está en $x=100$ y el dominio es $[0,200]$.
+
+**Qué calculamos.** Después de la colisión, el paquete se separa en dos: uno
+refleja y otro transmite. Definimos
+
+$$
+R=\int_{x<\text{barrera}}|\psi|^2dx,\qquad
+T=\int_{x>\text{barrera}}|\psi|^2dx,
+$$
+
+medidos **cuando los dos paquetes ya se alejaron de la barrera y ninguno
+llegó al borde del dominio**.
+
+**La referencia analítica.** Para una onda plana de energía $E$ sobre la
+barrera rectangular, la transmisión es (con $\hbar=m=1$)
+
+$$
+T(E)=\left[1+\frac{V_0^2\sinh^2(\kappa a)}{4E(V_0-E)}\right]^{-1},\quad
+\kappa=\sqrt{2(V_0-E)}\qquad(E<V_0),
+$$
+
+y para $E>V_0$ el seno hiperbólico se reemplaza por $\sin^2(qa)$, con
+$q=\sqrt{2(E-V_0)}$, y $V_0-E$ por $E-V_0$. Un paquete **no tiene una sola
+energía**: su coeficiente de transmisión es el promedio de $T(E)$ pesado por la
+distribución de impulsos del paquete,
+
+$$
+T_\text{paquete}=\int|\tilde\psi(k)|^2\,T\!\left(\tfrac{k^2}{2}\right)dk.
+$$
+
+```{python}
+#| label: barrera
+
+def transmision_analitica(E, V0, a):
+    """Coeficiente de transmisión de una barrera rectangular para ondas planas."""
+    E = np.asarray(E, dtype=float)
+    T = np.empty_like(E)
+    alto = E > V0 + 1e-9
+    bajo = E < V0 - 1e-9
+    igual = ~(alto | bajo)
+    K = np.sqrt(2 * (V0 - E[bajo]))
+    T[bajo] = 1 / (1 + V0**2 * np.sinh(K * a) ** 2 / (4 * E[bajo] * (V0 - E[bajo])))
+    q = np.sqrt(2 * (E[alto] - V0))
+    T[alto] = 1 / (1 + V0**2 * np.sin(q * a) ** 2 / (4 * E[alto] * (E[alto] - V0)))
+    T[igual] = 1 / (1 + V0 * a**2 / 2)
+    return T
+
+
+def preparar_colision(L=200.0, dx=0.1, V0=2.0, a=2.0, xb=100.0):
+    x = dx * np.arange(1, int(round(L / dx)))
+    # El centro de la barrera se corre dx/2 para que su ancho sea exactamente a/dx puntos.
+    V = np.where(np.abs(x - (xb + dx / 2)) < a / 2, V0, 0.0)
+    return x, V
+
+
+def colision(k0, x, V, dx, V0=2.0, a=2.0, xb=100.0, x0=60.0, sigma=5.0, dt=0.05, tf=None):
+    """Evoluciona el paquete hasta tf y devuelve (R, T, T promedio analítico, psi final)."""
+    psi = gaussiana(x, x0, sigma, k0)
+    k = np.linspace(0.01, 6, 1500)
+    amplitud_k = np.exp(-1j * np.outer(k, x)) @ psi * dx
+    peso = np.abs(amplitud_k) ** 2
+    peso /= np.trapezoid(peso, k)
+    T_paquete = np.trapezoid(peso * transmision_analitica(k**2 / 2, V0, a), k)
+    tf = tf if tf is not None else (xb - x0 + 25) / k0
+    psi = evolucionar_cn(psi, V, dx, dt, tf)
+    P = np.abs(psi) ** 2
+    R = np.sum(P[x < xb - a / 2]) * dx
+    T = np.sum(P[x > xb + a / 2]) * dx
+    return R, T, T_paquete, psi
+
+
+dx_b = 0.1
+x_b, V_b = preparar_colision(dx=dx_b)
+```
+
+**Antes de correr:** esta barrera tiene $V_0=2$. Para $k_0=1$ ($E=0.5$),
+$k_0=1.5$ ($E=1.125$), $k_0=2.5$ ($E=3.125$) y $k_0=3$ ($E=4.5$): ¿cuáles
+esperamos que **transmitan casi todo** y cuáles que **reflejen casi todo**?
+¿En qué se diferencia de una partícula clásica con esas energías?
+
+Primero la animación de un caso, $k_0=2.5$, y después los números.
+
+```{python}
+#| label: animacion-colision
+#| code-fold: true
+#| code-summary: "Código de la animación"
+
+k_anim = 2.5
+psi_ini = gaussiana(x_b, 60.0, 5.0, k_anim)
+_, t_anim, copias_a = evolucionar_cn(psi_ini, V_b, dx_b, 0.05, 30.0, cada=12)
+
+fig, ax = plt.subplots(figsize=(6.5, 3.2))
+ax.fill_between(x_b, 0, V_b * 0.02, color="0.8")
+linea, = ax.plot(x_b, np.abs(copias_a[0]) ** 2, "C0")
+ax.set(xlabel="$x$", ylabel="$|\\psi|^2$", xlim=(40, 160), ylim=(0, 0.085))
+titulo = ax.set_title("")
+ax.grid(alpha=0.25)
+fig.tight_layout()
+
+
+def actualizar(i):
+    linea.set_ydata(np.abs(copias_a[i]) ** 2)
+    titulo.set_text(f"$t={t_anim[i]:.1f}$   (barrera gris)")
+    return linea, titulo
+
+
+animar(fig, actualizar, len(copias_a), intervalo=80)
+```
+
+El paquete llega, una parte lo atraviesa y otra rebota. Ahora los números:
+
+```{python}
+#| label: barrera-numeros
+
+print(" k0   E=k0²/2   R_num    T_num    R+T     T promedio   T(E0) de onda plana")
+for k0 in (1.0, 1.5, 2.5, 3.0):
+    R, T, T_ana, _ = colision(k0, x_b, V_b, dx_b)
+    T_onda = transmision_analitica(np.array([k0**2 / 2]), 2.0, 2.0)[0]
+    print(f"{k0:>4}   {k0**2 / 2:>6.3f}   {R:.4f}   {T:.4f}   {R + T:.4f}   {T_ana:.4f}       {T_onda:.4f}")
+```
+
+- **$R+T=1$ se cumple siempre.** Es la conservación de la probabilidad, que
+  Crank–Nicolson respeta, y no dice nada de si los números son correctos.
+- La **comparación con la teoría** sí lo dice: $T_\text{num}$ y el promedio
+  analítico difieren en menos de $0.004$ en todos los casos. Esa diferencia
+  es de discretización y baja al refinar (más abajo).
+- Los casos con $E<V_0$ ($k_0=1$ y $1.5$) **transmiten una fracción
+  pequeña pero no nula**: es el **efecto túnel**. Una partícula clásica con
+  esa energía no pasa nunca.
+- Los casos con $E>V_0$ ($k_0=2.5$ y $3$) **no transmiten todo**: reflejan
+  una fracción de $4$ a $8\,\%$. Una partícula clásica pasaría con
+  seguridad.
+
+**Se promedia sobre el espectro del paquete** porque $T(E)$ varía rápido en
+el ancho de impulso del paquete. Para $k_0=1$ y $1.5$, comparar contra el valor
+de onda plana en $E_0=k_0^2/2$ da un error de $7$ a $10\,\%$. Para $k_0=2.5$,
+cerca de una resonancia, el error es de $4\,\%$ ($0.994$ frente a $0.959$): el
+paquete incluye energías fuera de la resonancia. El promedio lo corrige.
+
+**Convergencia.** Con $k_0=2.5$ refinamos el espacio y el tiempo juntos:
+
+```{python}
+#| label: convergencia-barrera
+
+print("   dx      dt       T_num     |T_num - T promedio|")
+for dx_i in (0.2, 0.1, 0.05):
+    x_i, V_i = preparar_colision(dx=dx_i)
+    _, T, T_ana, _ = colision(2.5, x_i, V_i, dx_i, dt=dx_i / 2)
+    print(f"{dx_i:>6}   {dx_i / 2:<6}   {T:.4f}    {abs(T - T_ana):.4f}")
+```
+
+La diferencia con la referencia **baja** al refinar la grilla.
+
+Para ver toda la curva barremos $k_0$:
+
+```{python}
+#| label: barrido-k0
+
+k0_barrido = np.arange(0.6, 3.61, 0.2)
+resultados = []
+for k0 in k0_barrido:
+    R, T, T_ana, _ = colision(k0, x_b, V_b, dx_b)
+    resultados.append((R, T, T_ana))
+resultados = np.array(resultados)
+```
+
+```{python}
+#| label: fig-transmision
+#| fig-cap: "Transmisión de una barrera de altura 2 y ancho 2: curva analítica para ondas planas (línea), promedio analítico para el paquete (cuadrados) y simulación (cruces). La línea punteada es el resultado clásico."
+#| code-fold: true
+#| code-summary: "Código de la figura"
+
+E_fino = np.linspace(0.05, 6, 600)
+fig, ax = plt.subplots(figsize=(6.5, 3.6))
+ax.plot(E_fino, transmision_analitica(E_fino, 2.0, 2.0), "k", lw=1, label="onda plana, $T(E)$")
+ax.plot(E_fino, np.where(E_fino > 2.0, 1.0, 0.0), "k:", lw=1, label="clásico")
+ax.plot(k0_barrido**2 / 2, resultados[:, 2], "s", mfc="none", color="C0", label="promedio analítico del paquete")
+ax.plot(k0_barrido**2 / 2, resultados[:, 1], "x", color="C3", label="simulación")
+ax.set(xlabel="energía $E$", ylabel="transmisión $T$")
+ax.legend(fontsize=8)
+ax.grid(alpha=0.25)
+fig.tight_layout()
+plt.show()
+```
+
+- Para $E<V_0$, $T$ **crece suavemente** con $E$.
+- Para $E>V_0$, $T$ **oscila** y vuelve a valer $1$ cuando
+  $\sin(qa)=0$: la onda reflejada en la entrada y la reflejada en la salida de
+  la barrera **se cancelan** (resonancias de la barrera). Eso no tiene
+  análogo clásico.
+
+### 6.1. Reflexiones en el borde del dominio
+
+Hasta acá, el dominio era lo bastante grande como para que nada llegara a las
+paredes antes de medir. Eso es una **elección**, no un hecho. Las paredes
+duras reflejan toda la probabilidad que les llega: si el paquete transmitido
+rebota y vuelve, **se mezcla con lo que medimos después**.
+
+Repetimos $k_0=2.5$ con un dominio más corto, $[0,130]$, midiendo $R$ y
+$T$ a distintos tiempos.
+
+```{python}
+#| label: borde
+
+x_c, V_c = preparar_colision(L=130.0, dx=dx_b)
+print("   tf      R        T      R+T")
+tiempos_medida = (25.0, 30.0, 40.0, 50.0, 60.0)
+serie = []
+for tf in tiempos_medida:
+    R, T, _, _ = colision(2.5, x_c, V_c, dx_b, tf=tf)
+    serie.append((R, T))
+    print(f"{tf:>5.0f}   {R:.4f}   {T:.4f}   {R + T:.4f}")
+```
+
+- A $t=25$ y $30$ la medición es correcta: coincide con el dominio grande.
+- A $t=40$ el paquete transmitido **llegó a la pared derecha** ($x=130$) y
+  está volviendo: parte está sobre la barrera.
+- A $t=50$ y $60$ ese paquete **cruzó la barrera de vuelta**, y se suma al
+  que quedó a la izquierda: el supuesto "$R$" es casi $1$.
+
+$R+T$ da $\approx1$ a $t=30$, $50$ y $60$, también cuando $R$ **ya está
+mal**: **no detecta el problema**. Sólo a $t=40$, con probabilidad sobre la
+barrera, la suma es menor. Lo que lo detecta es
+mirar $R$ **en función del tiempo de medición**: si el resultado cambia, no es
+un coeficiente de la barrera.
+
+**Regla:** medimos antes de que **cualquier** parte llegue al borde, es
+decir, con tiempo menor que la distancia al borde dividida por la velocidad
+$k_0$, o ponemos el borde lejos o absorbente.
+
+## 7. Discusión en grupos: un resultado plausible
+
+Un informe presenta el siguiente resultado:
+
+> Simulamos la colisión de un paquete gaussiano ($\sigma=5$, $k_0=2.5$,
+> $E=3.125$) contra una barrera rectangular ($V_0=2$, $a=2$) en un dominio
+> $[0,130]$, con Crank–Nicolson, $\Delta x=0.1$ y $\Delta t=0.05$. Medimos a
+> $t=60$. **Obtuvimos $R=0.963$ y $T=0.036$, con $R+T=0.999$, de modo que la
+> probabilidad se conserva y el método es correcto. La energía es más del
+> $50\,\%$ mayor que la altura de la barrera y aun así casi todo se refleja:
+> concluimos que el efecto cuántico dominante es la reflexión por encima de la
+> barrera.**
+
+```{python}
+#| label: informe
+#| code-fold: true
+#| code-summary: "Código del informe"
+
+R, T, T_ana, _ = colision(2.5, x_c, V_c, dx_b, tf=60.0)
+print(f"R = {R:.3f}, T = {T:.3f}, R + T = {R + T:.3f}")
+print(f"transmisión analítica (promedio del paquete) = {T_ana:.3f}")
+```
+
+1. ¿Qué control del informe **sí** pasa y qué prueba?
+2. Calculen la distancia del paquete transmitido hasta el borde derecho y
+   cuánto tarda en llegar. ¿Cuál era el tiempo máximo de medición?
+3. Comparen $T$ con la referencia analítica. ¿Qué indica la discrepancia?
+4. Propongan **dos controles** que habrían detectado el problema.
+5. Escriban la afirmación que el informe sí podía hacer.
+
+## 8. Qué podemos concluir y qué no
+
+Podemos concluir que:
+
+- FTCS no sirve para Schrödinger: $|\xi|=\sqrt{1+(\Delta tE)^2}>1$ para todo
+  paso, a diferencia de la difusión;
+- Crank–Nicolson conserva la norma hasta el redondeo, es de segundo orden en
+  $\Delta t$ y requiere resolver un sistema tridiagonal por paso;
+- el error temporal y el espacial se separan con una referencia exacta en el
+  tiempo para la misma $H$ discreta (la expansión en autoestados);
+- el valor medio de la posición en un oscilador sigue la trayectoria clásica;
+- el coeficiente de transmisión simulado coincide con el analítico promediado
+  sobre el espectro del paquete, con diferencias de discretización de
+  menos de $0.004$ en $\Delta x=0.1$ que bajan al refinar.
+
+No podemos concluir que:
+
+- $R+T=1$ valide un cálculo: la conservación de la norma la da el método, no la
+  física;
+- un coeficiente medido en un dominio con paredes sea de la barrera sin
+  verificar que ninguna parte del paquete llegó al borde;
+- comparar con $T(k_0^2/2)$ en lugar del promedio del paquete sea equivalente,
+  si $T(E)$ varía rápido en el ancho de energía del paquete;
+- la reflexión por encima de la barrera sea el efecto dominante en general: en
+  este ejemplo es de $4\,\%$.
+
+### Clásico frente a cuántico
+
+| | Clase 03 (clásica) | Clase 11 (cuántica) |
+|---|---|---|
+| Resultado de una colisión | un ángulo por cada parámetro de impacto | una **probabilidad** de reflejar y otra de transmitir |
+| Energía menor que la barrera | siempre rebota | pasa con probabilidad pequeña (túnel) |
+| Energía mayor que la barrera | siempre pasa | refleja una fracción, con resonancias |
+| Control principal | conservación de la energía | conservación de la norma |
+| Referencia independiente | cuadratura | $T(E)$ analítica y expansión en autoestados |
+
+### Pregunta de salida
+
+> **¿Por qué $R+T=1$ no alcanza para creer un coeficiente de transmisión, y
+> qué comparación sí le exige al cálculo?**
+
+## Referencias
+
+- R. Shankar, *Principles of Quantum Mechanics*, Springer (2.ª ed., 1994).
+  Capítulo 5.
+- D. J. Griffiths y D. F. Schroeter, *Introduction to Quantum Mechanics*,
+  Cambridge University Press (3.ª ed., 2018). Capítulo 2.
+- J. Crank y P. Nicolson, "A practical method for numerical evaluation of
+  solutions of partial differential equations of the heat-conduction type",
+  *Proceedings of the Cambridge Philosophical Society* **43**, 50–67 (1947).
+- N. Watanabe y M. Tsukada, "Fast and stable method for simulating quantum
+  electron dynamics", *Physical Review E* **62**, 2914 (2000).
+
+## Para cerrar
+
+![Heisenberg, Schrödinger y Ohm en un auto.](figuras/11-heisenberg-schrodinger-ohm.png){width=60%}
